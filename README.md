@@ -247,12 +247,4 @@ During the official evaluation:
    - The UI displays real-time Top-1 Accuracy, Route Continuity, Latency, and Traversed Arcs count.
    - An interactive multi-layer Folium map renders instantly in the right-hand pane, displaying the raw GPS points (blue), background road segments (gray), ground-truth reference route (green), and predicted route (red).
 
----
 
-## 8. Academic Integrity & Anti-Plagiarism Statement
-
-This submission strictly complies with the academic integrity guidelines of the UE24CS352A Machine Learning Hackathon:
-1. **Independent Implementation**: All code, mathematical formulations, spatial algorithms, features, and model configurations were independently authored from foundational principles.
-2. **Empirical Authenticity**: All numbers, tables, curves, and figures in this repository and the associated Technical Report reflect actual experimental execution on the provided dataset. No results were fabricated or simulated.
-3. **Zero Data Leakage**: Evaluator ground-truth routes are held strictly server-side on Laptop 1. The prediction model receives only GPS tracks and road network topologies, preserving strict scientific evaluation integrity.
-4. **Viva Preparedness**: Every team member is fully prepared to explain, reproduce, and mathematically defend each component of this pipeline during the oral evaluation.
