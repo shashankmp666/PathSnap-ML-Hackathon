@@ -31,8 +31,8 @@ FEATURE_COLUMNS = [
 
 def align_ground_truth_route(trip: TripData) -> np.ndarray:
     """
-    Monotonically maps each GPS observation t to its true traversed arc_id
-    from the reference route sequence.
+    Globally maps each GPS observation t to its true traversed arc_id
+    from the reference route using joint orthogonal distance and heading alignment.
     """
     if trip.route_arcs is None:
         return np.full(len(trip.track_x), -1, dtype=np.int32)
@@ -46,25 +46,22 @@ def align_ground_truth_route(trip: TripData) -> np.ndarray:
     r_ay = trip.arc_ay[route]
     r_bx = trip.arc_bx[route]
     r_by = trip.arc_by[route]
+    headings = trip.arc_headings[route]
     
     true_arc_ids = np.zeros(T, dtype=np.int32)
-    curr_idx = 0
     
     for t in range(T):
         px = trip.track_x[t]
         py = trip.track_y[t]
+        p_head = trip.track_headings[t]
         
-        # Look ahead window from current route index (avoiding backwards jumps)
-        window_end = min(curr_idx + 8, M)
-        sub_ax = r_ax[curr_idx:window_end]
-        sub_ay = r_ay[curr_idx:window_end]
-        sub_bx = r_bx[curr_idx:window_end]
-        sub_by = r_by[curr_idx:window_end]
+        dists, _, _, _ = project_points_to_segments(px, py, r_ax, r_ay, r_bx, r_by)
+        h_diffs = angular_difference(p_head, headings)
         
-        dists, _, _, _ = project_points_to_segments(px, py, sub_ax, sub_ay, sub_bx, sub_by)
-        best_local_idx = int(np.argmin(dists))
-        curr_idx = curr_idx + best_local_idx
-        true_arc_ids[t] = route[curr_idx]
+        # Combined cost: orthogonal distance (meters) + directional heading penalty
+        cost = dists + 0.12 * h_diffs
+        best_idx = int(np.argmin(cost))
+        true_arc_ids[t] = route[best_idx]
         
     return true_arc_ids
 

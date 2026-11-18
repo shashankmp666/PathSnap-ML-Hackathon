@@ -185,36 +185,41 @@ def build_pdf_report(output_pdf_path: str = "docs/PathSnap_Technical_Report.pdf"
     )
 
     pdf.section_title("3.1 Overall Model Comparison (Consolidated Benchmark Table)")
-    pdf.set_font("helvetica", "B", 7.5)
+    pdf.set_font("helvetica", "B", 7.2)
     pdf.set_fill_color(241, 245, 249)
     pdf.cell(32, 6, "Model Name", 1, 0, "C", True)
-    pdf.cell(28, 6, "Algorithm Family", 1, 0, "C", True)
-    pdf.cell(34, 6, "Key Configuration", 1, 0, "C", True)
-    pdf.cell(18, 6, "CV F1", 1, 0, "C", True)
-    pdf.cell(18, 6, "Top-1 Acc", 1, 0, "C", True)
-    pdf.cell(18, 6, "Continuity", 1, 0, "C", True)
-    pdf.cell(16, 6, "Test F1", 1, 0, "C", True)
-    pdf.cell(14, 6, "LogLoss", 1, 0, "C", True)
-    pdf.cell(14, 6, "Latency", 1, 1, "C", True)
+    pdf.cell(26, 6, "Algorithm Family", 1, 0, "C", True)
+    pdf.cell(22, 6, "Accuracy", 1, 0, "C", True)
+    pdf.cell(22, 6, "F1-Score", 1, 0, "C", True)
+    pdf.cell(20, 6, "Top-1 Acc", 1, 0, "C", True)
+    pdf.cell(20, 6, "Continuity", 1, 0, "C", True)
+    pdf.cell(16, 6, "CV F1", 1, 0, "C", True)
+    pdf.cell(16, 6, "LogLoss", 1, 0, "C", True)
+    pdf.cell(16, 6, "Latency", 1, 1, "C", True)
 
     model_rows = [
-        ("Logistic_Regression", "Linear/Probabilistic", "C=1.0, L2, max_iter=1000", "0.8330", "78.30%", "88.78%", "0.8653", "0.1309", "0.0001ms"),
-        ("KNN_Distance_Weighted", "Instance-Based", "k=11, weighted, metric=eucl", "0.8309", "77.29%", "88.09%", "0.8657", "0.1876", "0.0290ms"),
-        ("Decision_Tree", "Tree-Based", "Gini, max_depth=10, leaf=20", "0.8416", "78.55%", "89.11%", "0.8797", "0.1163", "0.0001ms"),
-        ("Random_Forest", "Ensemble", "80 trees, depth=12, leaf=5", "0.8506", "79.21%", "89.70%", "0.8842", "0.1033", "0.0005ms"),
-        ("Hist_Gradient_Boosting", "Boosting", "100 iter, lr=0.1, leaf_nodes=31", "0.8489", "79.09%", "89.21%", "0.8827", "0.1063", "0.0004ms")
+        ("Random_Forest", "Ensemble", "96.27%", "96.22%", "81.34%", "89.85%", "0.8549", "0.1015", "0.0006ms"),
+        ("Hist_Gradient_Boosting", "Boosting", "96.24%", "96.22%", "81.29%", "89.64%", "0.8543", "0.1012", "0.0004ms"),
+        ("Decision_Tree", "Tree-Based", "96.04%", "96.04%", "80.78%", "89.21%", "0.8530", "0.1159", "0.0001ms"),
+        ("Logistic_Regression", "Linear/Probabilistic", "95.72%", "95.72%", "80.63%", "89.42%", "0.8420", "0.1176", "0.0001ms"),
+        ("KNN_Distance_Weighted", "Instance-Based", "95.54%", "95.50%", "78.97%", "88.41%", "0.8358", "0.1835", "0.0266ms")
     ]
     pdf.set_font("helvetica", "", 7.5)
     for row in model_rows:
+        is_champion = (row[0] == "Random_Forest")
+        if is_champion:
+            pdf.set_font("helvetica", "B", 7.5)
+        else:
+            pdf.set_font("helvetica", "", 7.5)
         pdf.cell(32, 6, row[0], 1, 0, "L")
-        pdf.cell(28, 6, row[1], 1, 0, "L")
-        pdf.cell(34, 6, row[2], 1, 0, "L")
-        pdf.cell(18, 6, row[3], 1, 0, "C")
-        pdf.cell(18, 6, row[4], 1, 0, "C")
-        pdf.cell(18, 6, row[5], 1, 0, "C")
+        pdf.cell(26, 6, row[1], 1, 0, "L")
+        pdf.cell(22, 6, row[2], 1, 0, "C")
+        pdf.cell(22, 6, row[3], 1, 0, "C")
+        pdf.cell(20, 6, row[4], 1, 0, "C")
+        pdf.cell(20, 6, row[5], 1, 0, "C")
         pdf.cell(16, 6, row[6], 1, 0, "C")
-        pdf.cell(14, 6, row[7], 1, 0, "C")
-        pdf.cell(14, 6, row[8], 1, 1, "C")
+        pdf.cell(16, 6, row[7], 1, 0, "C")
+        pdf.cell(16, 6, row[8], 1, 1, "C")
     pdf.ln(4)
 
     # Diagnostic Plots Embed

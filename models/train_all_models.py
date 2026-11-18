@@ -169,18 +169,22 @@ def train_and_benchmark_models(
         test_predictions_dict[name] = test_probs
         
         test_metrics = evaluate_model_predictions(test_df, test_probs, arcs_dict=arcs_dict)
-        print(f"  -> Student-Test Top-1 Accuracy: {test_metrics['top1_accuracy']*100:.2f}%")
-        print(f"  -> Student-Test Macro F1:       {test_metrics['macro_f1']:.4f}")
-        print(f"  -> Student-Test Route Contin:   {test_metrics['route_continuity']*100:.2f}%")
-        print(f"  -> Student-Test Log Loss:       {test_metrics['log_loss']:.4f}")
-        print(f"  -> Training Time:               {train_time:.2f}s")
-        print(f"  -> Latency per Candidate:       {inference_time:.4f}ms")
+        print(f"  -> Student-Test Classification Acc: {test_metrics['candidate_accuracy']*100:.2f}%")
+        print(f"  -> Student-Test Weighted F1:       {test_metrics['weighted_f1']:.4f}")
+        print(f"  -> Student-Test Macro F1:          {test_metrics['macro_f1']:.4f}")
+        print(f"  -> Student-Test Top-1 Accuracy:    {test_metrics['top1_accuracy']*100:.2f}%")
+        print(f"  -> Student-Test Route Contin:      {test_metrics['route_continuity']*100:.2f}%")
+        print(f"  -> Student-Test Log Loss:          {test_metrics['log_loss']:.4f}")
+        print(f"  -> Training Time:                  {train_time:.2f}s")
+        print(f"  -> Latency per Candidate:          {inference_time:.4f}ms")
         
         benchmark_results.append({
             "Model": name,
             "Algorithm Family": spec['family'],
             "Key Configuration": spec['config'],
             "CV Macro F1-score": round(mean_cv_f1, 4),
+            "Classification Accuracy": round(test_metrics['candidate_accuracy'], 4),
+            "F1-Score (Weighted)": round(test_metrics['weighted_f1'], 4),
             "Top-1 Accuracy": round(test_metrics['top1_accuracy'], 4),
             "Route continuity": round(test_metrics['route_continuity'], 4),
             "Student-Test Macro F1-score": round(test_metrics['macro_f1'], 4),

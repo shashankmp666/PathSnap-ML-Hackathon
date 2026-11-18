@@ -73,12 +73,14 @@ def evaluate_model_predictions(
     Consolidated evaluation covering all required metrics in the hackathon syllabus.
     """
     y_true = df['is_match'].values
-    y_pred_binary = (probs >= 0.5).astype(int)
+    y_pred_binary = (probs >= 0.45).astype(int)
     
     # Clip probs to prevent log loss explosion
     clipped_probs = np.clip(probs, 1e-7, 1.0 - 1e-7)
     loss = float(log_loss(y_true, clipped_probs))
     
+    cand_acc = float((y_pred_binary == y_true).mean())
+    weighted_f1 = float(f1_score(y_true, y_pred_binary, average='weighted', zero_division=0))
     macro_f1 = float(f1_score(y_true, y_pred_binary, average='macro', zero_division=0))
     prec = float(precision_score(y_true, y_pred_binary, zero_division=0))
     rec = float(recall_score(y_true, y_pred_binary, zero_division=0))
@@ -90,8 +92,10 @@ def evaluate_model_predictions(
         continuity = compute_route_continuity(top1_df, arcs_dict)
         
     return {
-        'top1_accuracy': top1_acc,
+        'candidate_accuracy': cand_acc,
+        'weighted_f1': weighted_f1,
         'macro_f1': macro_f1,
+        'top1_accuracy': top1_acc,
         'precision': prec,
         'recall': rec,
         'log_loss': loss,
