@@ -100,12 +100,14 @@ def health_check():
 @app.get("/trips", response_model=TripsListResponse)
 def list_evaluation_trips():
     """
-    Returns metadata for all 10 evaluation trips in the student_test partition.
+    Returns metadata for evaluation trips found in evaluator_test, student_test, or train partitions.
+    Prioritizes evaluator_test if present.
     """
-    test_dirs = sorted(glob.glob(os.path.join(DATA_DIR, "student_test", "*")))
     items = []
     
-    for td in test_dirs:
+    # Priority 1: evaluator_test
+    eval_dirs = sorted(glob.glob(os.path.join(DATA_DIR, "evaluator_test", "*")))
+    for td in eval_dirs:
         tid = os.path.basename(td)
         tr_file = os.path.join(td, f"{tid}.track")
         if os.path.exists(tr_file):
@@ -117,11 +119,32 @@ def list_evaluation_trips():
             ]
             items.append(TripItem(
                 trip_id=tid,
-                partition="student_test",
+                partition="evaluator_test",
                 total_observations=len(tr_df),
                 duration_seconds=duration,
                 bbox=bbox
             ))
+            
+    # Priority 2: student_test (if evaluator_test is empty or to complement)
+    if not items:
+        test_dirs = sorted(glob.glob(os.path.join(DATA_DIR, "student_test", "*")))
+        for td in test_dirs:
+            tid = os.path.basename(td)
+            tr_file = os.path.join(td, f"{tid}.track")
+            if os.path.exists(tr_file):
+                tr_df = pd.read_csv(tr_file, sep=r'\s+', header=None, names=['lon', 'lat', 'time'])
+                duration = float(tr_df['time'].iloc[-1] - tr_df['time'].iloc[0])
+                bbox = [
+                    float(tr_df['lon'].min()), float(tr_df['lat'].min()),
+                    float(tr_df['lon'].max()), float(tr_df['lat'].max())
+                ]
+                items.append(TripItem(
+                    trip_id=tid,
+                    partition="student_test",
+                    total_observations=len(tr_df),
+                    duration_seconds=duration,
+                    bbox=bbox
+                ))
             
     return TripsListResponse(total_trips=len(items), trips=items)
 
@@ -136,14 +159,15 @@ def predict_trip(trip_id: str, request: Request):
     5. Exports interactive Folium map.
     """
     t0 = time.time()
-    trip_dir = os.path.join(DATA_DIR, "student_test", trip_id)
+    trip_dir = os.path.join(DATA_DIR, "evaluator_test", trip_id)
     if not os.path.exists(trip_dir):
-        # Fallback to train partition if requested
-        trip_dir = os.path.join(DATA_DIR, "train", trip_id)
+        trip_dir = os.path.join(DATA_DIR, "student_test", trip_id)
         if not os.path.exists(trip_dir):
-            raise HTTPException(status_code=404, detail=f"Trip {trip_id} not found.")
+            trip_dir = os.path.join(DATA_DIR, "train", trip_id)
+            if not os.path.exists(trip_dir):
+                raise HTTPException(status_code=404, detail=f"Trip {trip_id} not found.")
             
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = (request.client.host if (request and request.client) else "127.0.0.1")
     logger.info(f"Incoming PREDICT request from {client_ip} for Trip ID: {trip_id}")
     
     trip_data = load_single_trip(trip_dir, partition="inference")
@@ -195,13 +219,15 @@ def evaluate_trip(trip_id: str, request: Request):
     strictly on the server side without leaking reference routes to the client.
     """
     t0 = time.time()
-    trip_dir = os.path.join(DATA_DIR, "student_test", trip_id)
+    trip_dir = os.path.join(DATA_DIR, "evaluator_test", trip_id)
     if not os.path.exists(trip_dir):
-        trip_dir = os.path.join(DATA_DIR, "train", trip_id)
+        trip_dir = os.path.join(DATA_DIR, "student_test", trip_id)
         if not os.path.exists(trip_dir):
-            raise HTTPException(status_code=404, detail=f"Trip {trip_id} not found.")
+            trip_dir = os.path.join(DATA_DIR, "train", trip_id)
+            if not os.path.exists(trip_dir):
+                raise HTTPException(status_code=404, detail=f"Trip {trip_id} not found.")
             
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = (request.client.host if (request and request.client) else "127.0.0.1")
     logger.info(f"Incoming EVALUATE request from {client_ip} for Trip ID: {trip_id}")
     
     trip_data = load_single_trip(trip_dir, partition="eval")
