@@ -3,356 +3,222 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PathSnap &bull; Map-Matching & Route Reconstruction</title>
-    <!-- Tailwind CSS CDN -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>PathSnap — Map-Matching Evaluator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #09090b;
-            color: #f4f4f5;
+            background-color: #ffffff;
+            color: #000000;
         }
         .font-mono {
-            font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
         }
-        .map-container iframe {
+        .map-frame {
             width: 100%;
             height: 100%;
-            min-height: 620px;
-            border: none;
-        }
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #09090b;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #27272a;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #3f3f46;
+            min-height: 640px;
+            border: 0;
         }
     </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-neutral-800 selection:text-white">
+<body class="min-h-screen flex flex-col bg-white text-black antialiased">
 
-    <!-- Top Command Navigation -->
-    <header class="border-b border-neutral-800 bg-neutral-950/70 backdrop-blur-md sticky top-0 z-40 px-6 py-3.5 flex items-center justify-between">
-        <div class="flex items-center space-x-4">
-            <!-- Monotone Icon Mark -->
-            <div class="w-8 h-8 rounded border border-neutral-700 bg-neutral-900 flex items-center justify-center text-white font-mono font-bold text-sm">
-                PS
-            </div>
-            <div>
-                <div class="flex items-center gap-2">
-                    <span class="text-sm font-semibold tracking-tight text-white uppercase">PathSnap</span>
-                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-900 text-neutral-400">SYS-EVAL // LAPTOP 2</span>
-                </div>
-                <p class="text-[11px] text-neutral-400 tracking-tight font-mono">Distributed Map-Matching & Sequential Route Reconstruction</p>
-            </div>
+    <!-- Minimal Header -->
+    <header class="border-b border-black/10 px-8 py-4 flex items-center justify-between">
+        <div class="flex items-baseline space-x-3">
+            <span class="font-bold text-base tracking-tight text-black">PathSnap</span>
+            <span class="text-xs text-neutral-500 font-mono">Map-Matching & Route Reconstruction</span>
         </div>
-
-        <!-- Connection & Node Controls -->
-        <div class="flex items-center space-x-3">
-            <div class="flex items-center bg-neutral-900 border border-neutral-800 rounded px-2.5 py-1 text-xs">
-                <span class="text-neutral-500 font-mono text-[11px] mr-2">HOST</span>
-                <input id="apiBaseUrl" type="text" value="http://localhost:8000" class="bg-transparent text-neutral-200 focus:outline-none text-xs w-48 font-mono">
-                <button onclick="checkHealth()" title="Refresh connection" class="text-neutral-400 hover:text-white ml-2 pl-2 border-l border-neutral-800 transition-colors">
-                    <i class="fa-solid fa-rotate text-[11px]"></i>
-                </button>
-            </div>
-            
-            <div id="connectionStatus" class="flex items-center space-x-2 text-[11px] font-mono px-2.5 py-1 rounded border border-neutral-800 bg-neutral-900 text-neutral-400">
-                <span class="w-1.5 h-1.5 rounded-full bg-neutral-500 animate-pulse"></span>
-                <span>INITIALIZING</span>
-            </div>
+        <div class="flex items-center space-x-3 text-xs font-mono">
+            <input id="apiBaseUrl" type="text" value="http://localhost:8000" class="text-neutral-500 hover:text-black focus:text-black border-b border-dashed border-neutral-300 focus:border-black outline-none px-1 py-0.5 text-xs w-44 bg-transparent transition-colors" title="Server URL">
+            <span id="connectionStatus" class="text-neutral-400">&bull; Connecting...</span>
         </div>
     </header>
 
-    <!-- Main Workspace Grid -->
-    <main class="flex-1 max-w-[1600px] w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Main Content -->
+    <main class="flex-1 max-w-[1500px] w-full mx-auto p-8 flex flex-col space-y-6">
         
-        <!-- Left Panel: Trip Controls & Evaluation Metrics (4 Cols) -->
-        <div class="lg:col-span-4 space-y-5">
+        <!-- Controls & Metrics Row -->
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
-            <!-- Target Selection Card -->
-            <div class="bg-neutral-900/60 border border-neutral-800 rounded-lg p-5">
-                <div class="flex items-center justify-between pb-3 border-b border-neutral-800/80 mb-4">
-                    <span class="text-[11px] font-mono tracking-wider uppercase text-neutral-400 font-medium">Evaluation Trajectory</span>
-                    <span id="tripCountBadge" class="text-[10px] font-mono text-neutral-500 px-1.5 py-0.5 rounded border border-neutral-800 bg-neutral-950">10 TRIPS</span>
+            <!-- Controls (4 cols) -->
+            <div class="lg:col-span-4 border border-black/15 p-6 rounded-none space-y-4 bg-white">
+                <div>
+                    <label for="tripSelect" class="block text-xs font-mono uppercase tracking-wider text-neutral-600 mb-2 font-medium">Evaluation Trip</label>
+                    <select id="tripSelect" class="w-full border border-black/20 bg-white rounded-none px-3 py-2.5 text-sm font-mono text-black focus:border-black focus:outline-none transition-colors">
+                        <option value="00000015">Trip 00000015 (6,854 obs)</option>
+                        <option value="00000017">Trip 00000017 (1,346 obs)</option>
+                        <option value="00000023">Trip 00000023 (458 obs)</option>
+                        <option value="00000030">Trip 00000030 (654 obs)</option>
+                        <option value="00000049">Trip 00000049 (2,642 obs)</option>
+                        <option value="00000059">Trip 00000059 (1,031 obs)</option>
+                        <option value="00000067">Trip 00000067 (916 obs)</option>
+                        <option value="00000073">Trip 00000073 (1,144 obs)</option>
+                        <option value="00000087">Trip 00000087 (1,399 obs)</option>
+                        <option value="00000094">Trip 00000094 (3,230 obs)</option>
+                    </select>
                 </div>
-                
-                <div class="space-y-3">
-                    <div>
-                        <label for="tripSelect" class="block text-[11px] text-neutral-400 font-mono mb-1.5">RESERVED BENCHMARK SET</label>
-                        <select id="tripSelect" class="w-full bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-xs font-mono text-neutral-200 focus:border-neutral-500 focus:outline-none transition-colors">
-                            <option value="00000015">Trip 00000015 (6,854 obs &bull; evaluator_test)</option>
-                            <option value="00000017">Trip 00000017 (1,346 obs &bull; evaluator_test)</option>
-                            <option value="00000023">Trip 00000023 (458 obs &bull; evaluator_test)</option>
-                            <option value="00000030">Trip 00000030 (654 obs &bull; evaluator_test)</option>
-                            <option value="00000049">Trip 00000049 (2,642 obs &bull; evaluator_test)</option>
-                            <option value="00000059">Trip 00000059 (1,031 obs &bull; evaluator_test)</option>
-                            <option value="00000067">Trip 00000067 (916 obs &bull; evaluator_test)</option>
-                            <option value="00000073">Trip 00000073 (1,144 obs &bull; evaluator_test)</option>
-                            <option value="00000087">Trip 00000087 (1,399 obs &bull; evaluator_test)</option>
-                            <option value="00000094">Trip 00000094 (3,230 obs &bull; evaluator_test)</option>
-                        </select>
+
+                <button id="evalBtn" onclick="runEvaluation()" class="w-full bg-black text-white hover:bg-neutral-800 active:bg-neutral-900 text-sm font-medium py-3 px-4 rounded-none transition-colors font-mono">
+                    Run Evaluation
+                </button>
+            </div>
+
+            <!-- Scoreboard (8 cols) -->
+            <div class="lg:col-span-8 border border-black/15 p-6 rounded-none bg-white">
+                <div class="flex items-center justify-between pb-3 border-b border-black/10 mb-5">
+                    <span class="text-xs font-mono uppercase tracking-wider text-neutral-600 font-medium">Evaluation Metrics</span>
+                    <span id="evalStatusBadge" class="text-xs font-mono text-neutral-400">Ready</span>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <!-- Top-1 Accuracy -->
+                    <div class="border-l-2 border-black pl-3 py-1">
+                        <div class="text-[11px] font-mono text-neutral-500 uppercase tracking-wider">Top-1 Accuracy</div>
+                        <div id="metricAcc" class="text-3xl font-mono font-bold text-black tracking-tight mt-1">--</div>
                     </div>
 
-                    <!-- Action Buttons -->
-                    <div class="pt-2 flex flex-col gap-2">
-                        <button id="evalBtn" onclick="runEvaluation()" class="w-full bg-white hover:bg-neutral-200 active:bg-neutral-300 text-black font-semibold text-xs py-2.5 px-4 rounded flex items-center justify-center space-x-2 transition-all">
-                            <i class="fa-solid fa-play text-[10px]"></i>
-                            <span>Evaluate Selected Trip</span>
-                        </button>
-                        <button id="predBtn" onclick="runPredictionOnly()" class="w-full bg-neutral-950 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 text-xs py-2 px-4 rounded font-mono transition-colors">
-                            Inference Only (Unlabeled Route)
-                        </button>
+                    <!-- Route Continuity -->
+                    <div class="border-l-2 border-black pl-3 py-1">
+                        <div class="text-[11px] font-mono text-neutral-500 uppercase tracking-wider">Route Continuity</div>
+                        <div id="metricCont" class="text-3xl font-mono font-bold text-black tracking-tight mt-1">--</div>
                     </div>
+
+                    <!-- Candidate Miss Rate -->
+                    <div class="border-l-2 border-black/30 pl-3 py-1">
+                        <div class="text-[11px] font-mono text-neutral-500 uppercase tracking-wider">Candidate Miss</div>
+                        <div id="metricMiss" class="text-3xl font-mono font-bold text-black tracking-tight mt-1">--</div>
+                    </div>
+
+                    <!-- Latency -->
+                    <div class="border-l-2 border-black/30 pl-3 py-1">
+                        <div class="text-[11px] font-mono text-neutral-500 uppercase tracking-wider">Latency</div>
+                        <div id="metricLatency" class="text-3xl font-mono font-bold text-black tracking-tight mt-1">--</div>
+                    </div>
+                </div>
+
+                <div class="mt-5 pt-3 border-t border-black/10 flex items-center justify-between text-xs font-mono text-neutral-500">
+                    <span>Reconstructed Segments:</span>
+                    <span id="metricArcs" class="text-black font-semibold">--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Map Viewport Section -->
+        <section class="border border-black/15 rounded-none overflow-hidden bg-neutral-50 relative flex flex-col flex-1 min-h-[640px]">
+            <div class="border-b border-black/10 bg-white px-4 py-2.5 flex items-center justify-between text-xs font-mono text-neutral-600">
+                <span>Interactive Trajectory Map</span>
+                <div class="flex items-center space-x-4 text-[11px]">
+                    <span>&bull; Blue: GPS Track</span>
+                    <span>&bull; Gray: Road Network</span>
+                    <span>&bull; Green: Reference Route</span>
+                    <span>&bull; Red: Reconstructed Route</span>
                 </div>
             </div>
 
-            <!-- Quantitative Telemetry Matrix -->
-            <div class="bg-neutral-900/60 border border-neutral-800 rounded-lg p-5">
-                <div class="flex items-center justify-between pb-3 border-b border-neutral-800/80 mb-4">
-                    <span class="text-[11px] font-mono tracking-wider uppercase text-neutral-400 font-medium">Evaluation Scoreboard</span>
-                    <span id="evalStatusBadge" class="text-[10px] font-mono text-neutral-500 px-1.5 py-0.5 rounded border border-neutral-800 bg-neutral-950">IDLE</span>
+            <div class="flex-1 relative flex items-center justify-center min-h-[600px] bg-white">
+                <div id="mapPlaceholder" class="text-center p-8 space-y-2 text-neutral-400">
+                    <p class="text-sm font-mono text-neutral-600">Select an evaluation trip and click "Run Evaluation"</p>
+                    <p class="text-xs font-mono text-neutral-400">The interactive multi-layer Folium map will render here</p>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
-                    <!-- Metric: Top-1 Accuracy -->
-                    <div class="bg-neutral-950 border border-neutral-800/80 p-3.5 rounded">
-                        <div class="text-[10px] font-mono tracking-wider uppercase text-neutral-400 mb-1">Top-1 Accuracy</div>
-                        <div id="metricAcc" class="text-2xl font-mono font-bold text-white tracking-tight">--</div>
-                        <div class="text-[10px] font-mono text-neutral-400 mt-1">Observation match</div>
-                    </div>
+                <iframe id="mapFrame" src="" class="hidden map-frame"></iframe>
 
-                    <!-- Metric: Route Continuity -->
-                    <div class="bg-neutral-950 border border-neutral-800/80 p-3.5 rounded">
-                        <div class="text-[10px] font-mono tracking-wider uppercase text-neutral-400 mb-1">Route Continuity</div>
-                        <div id="metricCont" class="text-2xl font-mono font-bold text-white tracking-tight">--</div>
-                        <div class="text-[10px] font-mono text-neutral-400 mt-1">Topological validity</div>
-                    </div>
-
-                    <!-- Metric: Candidate Miss Rate -->
-                    <div class="bg-neutral-950 border border-neutral-800/80 p-3.5 rounded">
-                        <div class="text-[10px] font-mono tracking-wider uppercase text-neutral-400 mb-1">Candidate Miss</div>
-                        <div id="metricMiss" class="text-2xl font-mono font-bold text-neutral-300 tracking-tight">--</div>
-                        <div class="text-[10px] font-mono text-neutral-400 mt-1">k=10 retrieval error</div>
-                    </div>
-
-                    <!-- Metric: Latency -->
-                    <div class="bg-neutral-950 border border-neutral-800/80 p-3.5 rounded">
-                        <div class="text-[10px] font-mono tracking-wider uppercase text-neutral-400 mb-1">Inference Time</div>
-                        <div id="metricLatency" class="text-2xl font-mono font-bold text-neutral-300 tracking-tight">--</div>
-                        <div class="text-[10px] font-mono text-neutral-400 mt-1">Total server latency</div>
-                    </div>
-                </div>
-
-                <!-- Sequence Diagnostics -->
-                <div class="mt-3.5 p-3 bg-neutral-950 border border-neutral-800/80 rounded flex items-center justify-between text-xs font-mono">
-                    <span class="text-neutral-500 text-[11px]">Traversed Arc Sequence:</span>
-                    <span id="metricArcs" class="text-neutral-300 text-[11px] font-semibold">-- segments</span>
+                <!-- Loading State -->
+                <div id="loadingOverlay" class="hidden absolute inset-0 bg-white/90 backdrop-blur-xs flex flex-col items-center justify-center space-y-3 z-30">
+                    <div class="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                    <span class="text-xs font-mono tracking-wider uppercase text-neutral-800">Processing Trip Pipeline...</span>
                 </div>
             </div>
-
-            <!-- Architecture & Audit Footnote -->
-            <div class="border border-neutral-800/80 bg-neutral-950/40 rounded-lg p-4 space-y-2 text-xs">
-                <div class="text-[11px] font-mono font-semibold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-lock text-[10px]"></i> Server-Side Reference Isolation
-                </div>
-                <p class="text-neutral-400 text-[11px] leading-relaxed">
-                    Ground-truth route corridors remain strictly stored on Laptop 1. The client interface transmits only query trip identifiers.
-                </p>
-            </div>
-        </div>
-
-        <!-- Right Panel: Interactive Cartographic Viewport (8 Cols) -->
-        <div class="lg:col-span-8 flex flex-col bg-neutral-900/60 border border-neutral-800 rounded-lg p-5">
-            <div class="flex items-center justify-between pb-3 border-b border-neutral-800/80 mb-4">
-                <div class="flex items-center space-x-2">
-                    <span class="text-[11px] font-mono tracking-wider uppercase text-neutral-400 font-medium">Trajectory Visualization</span>
-                    <span class="text-[10px] font-mono text-neutral-400 px-1.5 py-0.5 rounded border border-neutral-800 bg-neutral-950">LEAFLET // FOLIUM</span>
-                </div>
-                
-                <!-- Monotone Cartographic Legend -->
-                <div class="flex items-center space-x-4 text-[11px] font-mono">
-                    <span class="flex items-center gap-1.5 text-neutral-400">
-                        <span class="w-2 h-2 rounded-full border border-neutral-400 bg-neutral-300"></span> GPS Point
-                    </span>
-                    <span class="flex items-center gap-1.5 text-neutral-400">
-                        <span class="w-3 h-0.5 bg-neutral-500"></span> Road Network
-                    </span>
-                    <span class="flex items-center gap-1.5 text-neutral-300 font-medium">
-                        <span class="w-3 h-1 bg-white"></span> Ground Truth
-                    </span>
-                    <span class="flex items-center gap-1.5 text-neutral-300 font-medium">
-                        <span class="w-3 h-1 border-b-2 border-neutral-400"></span> Predicted
-                    </span>
-                </div>
-            </div>
-
-            <!-- Map Viewport -->
-            <div class="flex-1 bg-neutral-950 rounded border border-neutral-800 overflow-hidden min-h-[620px] relative flex items-center justify-center">
-                <div id="mapPlaceholder" class="text-center p-10 space-y-2">
-                    <div class="w-12 h-12 mx-auto rounded-full border border-neutral-800 flex items-center justify-center text-neutral-500 mb-3">
-                        <i class="fa-solid fa-map text-sm"></i>
-                    </div>
-                    <div class="text-xs font-mono text-neutral-400 uppercase tracking-wider">Awaiting Execution</div>
-                    <p class="text-xs text-neutral-400 max-w-sm">Select an evaluation trip on the left and click "Evaluate Selected Trip" to inspect the reconstructed road corridor.</p>
-                </div>
-
-                <iframe id="mapFrame" src="" class="hidden w-full h-full"></iframe>
-
-                <!-- Monochromatic Loading Overlay -->
-                <div id="loadingOverlay" class="hidden absolute inset-0 bg-neutral-950/85 backdrop-blur-sm flex flex-col items-center justify-center space-y-4 z-50">
-                    <div class="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <div class="text-center space-y-1">
-                        <div class="text-xs font-mono font-medium text-white tracking-wider uppercase">Executing Pipeline</div>
-                        <div class="text-[11px] font-mono text-neutral-500">Spatial Index &bull; Classifier Inference &bull; Sequential Viterbi</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </section>
 
     </main>
 
-    <!-- Sleek Monotone Footer -->
-    <footer class="border-t border-neutral-800/80 px-6 py-3 flex items-center justify-between text-[11px] font-mono text-neutral-400">
-        <div>PES UNIVERSITY &bull; CSE DEPARTMENT &bull; UE24CS352A MACHINE LEARNING HACKATHON</div>
-        <div>PATHSNAP DISTRIBUTED SYSTEM</div>
+    <!-- Minimal Footer -->
+    <footer class="border-t border-black/10 px-8 py-3 text-xs font-mono text-neutral-400 flex justify-between">
+        <span>PES University &bull; UE24CS352A Machine Learning</span>
+        <span>PathSnap Map-Matching System</span>
     </footer>
 
-    <!-- Client Script -->
     <script>
         function getBaseUrl() {
-            return document.getElementById('apiBaseUrl').value.trim().replace(/\/$/, "");
-        }
-
-        async function loadTrips() {
-            try {
-                const res = await fetch(`${getBaseUrl()}/trips`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const tripSelect = document.getElementById('tripSelect');
-                    if (data.trips && data.trips.length > 0) {
-                        tripSelect.innerHTML = "";
-                        data.trips.forEach(t => {
-                            const opt = document.createElement('option');
-                            opt.value = t.trip_id;
-                            opt.textContent = `Trip ${t.trip_id} (${t.total_observations.toLocaleString()} obs • ${t.duration_seconds.toFixed(0)}s • ${t.partition})`;
-                            tripSelect.appendChild(opt);
-                        });
-                        document.getElementById('tripCountBadge').innerText = `${data.trips.length} TRIPS`;
-                    }
-                }
-            } catch (e) {
-                console.warn("Could not dynamically load trips:", e);
-            }
+            const input = document.getElementById('apiBaseUrl');
+            return input ? input.value.trim().replace(/\/$/, "") : window.location.origin;
         }
 
         async function checkHealth() {
             const statusEl = document.getElementById('connectionStatus');
-            statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-pulse"></span><span>CONNECTING</span>`;
-            statusEl.className = "flex items-center space-x-2 text-[11px] font-mono px-2.5 py-1 rounded border border-neutral-800 bg-neutral-900 text-neutral-400";
-            
             try {
-                const res = await fetch(`${getBaseUrl()}/health`);
+                const res = await fetch(`${getBaseUrl()}/health?_t=${Date.now()}`);
+                if (res.ok) {
+                    statusEl.innerText = "● Connected (Port 8000)";
+                    statusEl.className = "text-black font-semibold";
+                    loadTrips();
+                } else {
+                    throw new Error();
+                }
+            } catch (e) {
+                statusEl.innerText = "○ Disconnected";
+                statusEl.className = "text-neutral-400";
+            }
+        }
+
+        async function loadTrips() {
+            try {
+                const res = await fetch(`${getBaseUrl()}/trips?_t=${Date.now()}`);
                 if (res.ok) {
                     const data = await res.json();
-                    statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-white"></span><span class="text-white font-medium">ONLINE (PORT 8000)</span>`;
-                    statusEl.className = "flex items-center space-x-2 text-[11px] font-mono px-2.5 py-1 rounded border border-neutral-700 bg-neutral-900 text-white";
-                    await loadTrips();
-                } else {
-                    throw new Error("HTTP error " + res.status);
+                    const sel = document.getElementById('tripSelect');
+                    if (data.trips && data.trips.length > 0) {
+                        sel.innerHTML = "";
+                        data.trips.forEach(t => {
+                            const opt = document.createElement('option');
+                            opt.value = t.trip_id;
+                            opt.textContent = `Trip ${t.trip_id} (${t.total_observations.toLocaleString()} obs • ${t.duration_seconds.toFixed(0)}s)`;
+                            sel.appendChild(opt);
+                        });
+                    }
                 }
-            } catch (err) {
-                statusEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-neutral-600"></span><span class="text-neutral-500">OFFLINE</span>`;
-                statusEl.className = "flex items-center space-x-2 text-[11px] font-mono px-2.5 py-1 rounded border border-neutral-800 bg-neutral-950 text-neutral-500";
-            }
+            } catch (e) {}
         }
 
         async function runEvaluation() {
             const tripId = document.getElementById('tripSelect').value;
             const overlay = document.getElementById('loadingOverlay');
             overlay.classList.remove('hidden');
-            
+
             try {
-                const res = await fetch(`${getBaseUrl()}/evaluate/${tripId}`, { method: 'POST' });
-                if (!res.ok) throw new Error("Evaluation request failed: " + res.statusText);
+                const res = await fetch(`${getBaseUrl()}/evaluate/${tripId}?_t=${Date.now()}`, { method: 'POST' });
+                if (!res.ok) throw new Error("Evaluation request failed");
                 const data = await res.json();
-                
-                // Update Metrics
+
                 document.getElementById('metricAcc').innerText = `${data.observation_top1_accuracy.toFixed(1)}%`;
                 document.getElementById('metricCont').innerText = `${data.route_continuity.toFixed(1)}%`;
                 document.getElementById('metricMiss').innerText = `${data.candidate_miss_rate.toFixed(1)}%`;
-                document.getElementById('metricLatency').innerText = `${data.inference_latency_ms.toFixed(0)} ms`;
+                document.getElementById('metricLatency').innerText = `${(data.inference_latency_ms / 1000).toFixed(1)}s`;
                 document.getElementById('metricArcs').innerText = `${data.total_reconstructed_arcs} segments (${data.total_observations.toLocaleString()} points)`;
-                
-                const badge = document.getElementById('evalStatusBadge');
-                badge.innerText = "SUCCESS";
-                badge.className = "text-[10px] font-mono text-white px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-900 font-semibold";
-                
-                // Load Map
-                const mapFrame = document.getElementById('mapFrame');
+
+                document.getElementById('evalStatusBadge').innerText = "Complete";
+
+                const frame = document.getElementById('mapFrame');
                 const placeholder = document.getElementById('mapPlaceholder');
-                mapFrame.src = `${getBaseUrl()}${data.map_url}?t=${Date.now()}`;
-                mapFrame.classList.remove('hidden');
+                frame.src = `${getBaseUrl()}${data.map_url}?_t=${Date.now()}`;
+                frame.classList.remove('hidden');
                 placeholder.classList.add('hidden');
-                
             } catch (err) {
-                let msg = err.message;
-                if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-                    msg = `Could not reach Laptop 1 API at "${getBaseUrl()}".\n\n1. Make sure "run_api.bat" is running in a terminal.\n2. If testing locally, ensure host is "http://localhost:8000".\n3. If testing between 2 laptops, verify Wi-Fi IP and subnet.`;
-                }
-                alert("Evaluation error:\n" + msg);
+                alert("Evaluation error: Make sure run_api.bat is running on http://localhost:8000");
             } finally {
                 overlay.classList.add('hidden');
             }
         }
 
-        async function runPredictionOnly() {
-            const tripId = document.getElementById('tripSelect').value;
-            const overlay = document.getElementById('loadingOverlay');
-            overlay.classList.remove('hidden');
-            
-            try {
-                const res = await fetch(`${getBaseUrl()}/predict/${tripId}`, { method: 'POST' });
-                if (!res.ok) throw new Error("Prediction failed: " + res.statusText);
-                const data = await res.json();
-                
-                document.getElementById('metricAcc').innerText = "N/A";
-                document.getElementById('metricCont').innerText = "--";
-                document.getElementById('metricMiss').innerText = "--";
-                document.getElementById('metricLatency').innerText = `${data.inference_latency_ms.toFixed(0)} ms`;
-                document.getElementById('metricArcs').innerText = `${data.total_reconstructed_arcs} segments`;
-                
-                const badge = document.getElementById('evalStatusBadge');
-                badge.innerText = "PREDICTED";
-                badge.className = "text-[10px] font-mono text-neutral-400 px-1.5 py-0.5 rounded border border-neutral-800 bg-neutral-950";
-                
-                const mapFrame = document.getElementById('mapFrame');
-                const placeholder = document.getElementById('mapPlaceholder');
-                mapFrame.src = `${getBaseUrl()}${data.map_url}?t=${Date.now()}`;
-                mapFrame.classList.remove('hidden');
-                placeholder.classList.add('hidden');
-            } catch (err) {
-                alert("Prediction error: " + err.message);
-            } finally {
-                overlay.classList.add('hidden');
-            }
-        }
-
-        // Initialize on load
         window.addEventListener('DOMContentLoaded', () => {
             if (window.location.protocol.startsWith('http')) {
                 document.getElementById('apiBaseUrl').value = window.location.origin;

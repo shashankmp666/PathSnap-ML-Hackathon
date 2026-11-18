@@ -317,7 +317,11 @@ if os.path.exists(ui_dir):
 
 @app.get("/")
 def root_redirect():
-    return FileResponse(os.path.join(ui_dir, "index.html"))
+    response = FileResponse(os.path.join(ui_dir, "index.html"))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 if __name__ == '__main__':
     import uvicorn
