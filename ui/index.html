@@ -257,7 +257,11 @@
                 placeholder.classList.add('hidden');
                 
             } catch (err) {
-                alert("Evaluation error: " + err.message);
+                let msg = err.message;
+                if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+                    msg = `Could not reach Laptop 1 API at "${getBaseUrl()}".\n\n1. Make sure "run_api.bat" is running in a CMD window on Laptop 1.\n2. If testing on the same laptop, use "http://localhost:8000" in the top bar.\n3. If testing from Laptop 2, enter Laptop 1's IP (e.g. "http://10.8.121.165:8000").\n4. Ensure both laptops are connected to the same Wi-Fi / Hotspot.`;
+                }
+                alert("Evaluation error:\n" + msg);
             } finally {
                 overlay.classList.add('hidden');
             }
