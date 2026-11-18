@@ -1,0 +1,34 @@
+# Python environment
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# IDE and Editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS specific
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Log files and temporary artifacts
+*.log
+scratch/
+tmp/
+
+# Large raw training corpus (student_test is preserved for evaluation)
+data/train/
+artifacts/*.pkl
+
