@@ -57,8 +57,8 @@ def generate_ui_screenshot(output_path: str = "results/plots/screenshot_ui_lapto
     
     # Render UI Header
     ax.text(0.04, 0.94, "PathSnap", fontsize=18, fontweight='bold', color='#ffffff')
-    ax.text(0.18, 0.94, "Laptop 2 Evaluator Control Panel", fontsize=12, color='#94a3b8')
-    ax.text(0.72, 0.94, "● Connected to Laptop 1 (192.168.1.45:8000)", fontsize=10, fontweight='bold', color='#4ade80')
+    ax.text(0.21, 0.944, "|  Laptop 2 Evaluator Control Panel", fontsize=12, color='#94a3b8')
+    ax.text(0.68, 0.944, "● Connected to Laptop 1 (192.168.1.45:8000)", fontsize=10, fontweight='bold', color='#4ade80')
     
     # Left Panel - Card 1: Selection & Controls
     rect1 = plt.Rectangle((0.04, 0.50), 0.32, 0.38, facecolor='#1e293b', edgecolor='#334155', linewidth=1.5)
@@ -74,11 +74,11 @@ def generate_ui_screenshot(output_path: str = "results/plots/screenshot_ui_lapto
     ax.add_patch(rect2)
     ax.text(0.06, 0.42, "SERVER-SIDE AUDIT RESULTS", fontsize=10, fontweight='bold', color='#cbd5e1')
     
-    ax.text(0.06, 0.33, "Top-1 Accuracy:\n93.13%", fontsize=11, fontweight='bold', color='#60a5fa')
-    ax.text(0.20, 0.33, "Route Continuity:\n99.62%", fontsize=11, fontweight='bold', color='#4ade80')
-    ax.text(0.06, 0.19, "Candidate Miss:\n0.76%", fontsize=11, fontweight='bold', color='#fbbf24')
-    ax.text(0.20, 0.19, "Total Latency:\n1,041 ms", fontsize=11, fontweight='bold', color='#c084fc')
-    ax.text(0.06, 0.11, "Sequence: 90 road segments decoded", fontsize=8.5, family='monospace', color='#94a3b8')
+    ax.text(0.06, 0.32, "Top-1 Acc:\n93.13%", fontsize=11, fontweight='bold', color='#60a5fa')
+    ax.text(0.21, 0.32, "Continuity:\n99.62%", fontsize=11, fontweight='bold', color='#4ade80')
+    ax.text(0.06, 0.18, "Miss Rate:\n0.76%", fontsize=11, fontweight='bold', color='#fbbf24')
+    ax.text(0.21, 0.18, "Latency:\n1,041 ms", fontsize=11, fontweight='bold', color='#c084fc')
+    ax.text(0.06, 0.10, "Sequence: 90 road segments decoded", fontsize=8.5, family='monospace', color='#94a3b8')
     
     # Right Panel - Map Viewer
     rect3 = plt.Rectangle((0.40, 0.08), 0.56, 0.80, facecolor='#090d16', edgecolor='#334155', linewidth=1.5)
