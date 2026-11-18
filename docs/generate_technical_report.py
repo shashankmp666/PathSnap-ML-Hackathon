@@ -494,19 +494,6 @@ def build_pdf_report(output_pdf_path: str = "docs/PathSnap_Technical_Report.pdf"
         pdf.set_font("helvetica", "I", 8)
         pdf.cell(0, 5, "Figure 7: Screenshot of the working Evaluator UI dashboard on Laptop 2 showing connected status, metrics, and map.", 0, 1, "C")
         pdf.ln(4)
-
-    # =========================================================================
-    # SECTION 8: ACADEMIC INTEGRITY & ANTI-PLAGIARISM
-    # =========================================================================
-    pdf.chapter_title("8. Academic Integrity, Plagiarism and AI Content Checks")
-    pdf.body_p(
-        "We hereby declare that all source code, models, experiments, and technical analyses submitted in this report and the GitHub repository "
-        "are the original, independent work of the team. In compliance with the event's academic integrity policies:\n"
-        "1. Genuine Empirical Execution: All numbers, tables, curves, and figures represent actual code execution on the real dataset. No data or metrics were fabricated.\n"
-        "2. Independent Engineering: All algorithms, geometric routines, feature extractors, HMM formulations, and API endpoints were independently implemented.\n"
-        "3. Zero Data Leakage: Evaluator testing routes were strictly preserved server-side and were not utilized during model training or hyperparameter tuning.\n"
-        "4. Oral Defense Readiness: Every team member understands the mathematical principles, source code, and empirical results, and is prepared to defend them during the viva."
-    )
     
     pdf.output(output_pdf_path)
     print(f"[Technical Report] Consolidated PDF compiled successfully to: {output_pdf_path}")
