@@ -31,4 +31,5 @@ tmp/
 # Large raw training corpus (student_test is preserved for evaluation)
 data/train/
 artifacts/*.pkl
+artifacts/all_trained_models.joblib
 

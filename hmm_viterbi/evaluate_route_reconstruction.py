@@ -42,9 +42,11 @@ def evaluate_route_reconstruction(
         sigma_z=10.0,
         beta=15.0,
         classifier_weight=0.85,
-        stay_log_bonus=3.0,
+        stay_log_bonus=6.0,
         connected_log_bonus=3.5,
-        unconnected_penalty=-15.0
+        two_hop_bonus=2.5,
+        reverse_penalty=-100.0,
+        unconnected_penalty=-40.0
     )
     
     trip_results = []

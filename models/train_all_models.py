@@ -49,38 +49,38 @@ def get_models_suite() -> dict[str, dict]:
     return {
         "Logistic_Regression": {
             "family": "Linear & Probabilistic",
-            "config": "C=1.0, penalty=l2, max_iter=1000",
+            "config": "C=2.0, penalty=l2, max_iter=1000",
             "model": Pipeline([
                 ("scaler", StandardScaler()),
-                ("clf", LogisticRegression(C=1.0, penalty='l2', max_iter=1000, random_state=42))
+                ("clf", LogisticRegression(C=2.0, penalty='l2', max_iter=1000, random_state=42))
             ]),
             "subsample_train": None
         },
         "KNN_Distance_Weighted": {
             "family": "Instance-Based",
-            "config": "k=11, weights=distance, metric=euclidean",
+            "config": "k=15, weights=distance, metric=euclidean",
             "model": Pipeline([
                 ("scaler", StandardScaler()),
-                ("clf", KNeighborsClassifier(n_neighbors=11, weights='distance', n_jobs=-1))
+                ("clf", KNeighborsClassifier(n_neighbors=15, weights='distance', n_jobs=-1))
             ]),
             "subsample_train": 50000  # Subsample for KNN scaling efficiency
         },
         "Decision_Tree": {
             "family": "Tree-Based",
-            "config": "criterion=gini, max_depth=10, min_samples_leaf=20",
-            "model": DecisionTreeClassifier(max_depth=10, min_samples_leaf=20, random_state=42),
+            "config": "criterion=gini, max_depth=12, min_samples_leaf=15",
+            "model": DecisionTreeClassifier(max_depth=12, min_samples_leaf=15, random_state=42),
             "subsample_train": None
         },
         "Random_Forest": {
             "family": "Ensemble",
-            "config": "n_estimators=80, max_depth=12, min_samples_leaf=5",
-            "model": RandomForestClassifier(n_estimators=80, max_depth=12, min_samples_leaf=5, n_jobs=-1, random_state=42),
-            "subsample_train": 150000
+            "config": "n_estimators=100, max_depth=15, min_samples_leaf=4",
+            "model": RandomForestClassifier(n_estimators=100, max_depth=15, min_samples_leaf=4, n_jobs=-1, random_state=42),
+            "subsample_train": 180000
         },
         "Hist_Gradient_Boosting": {
             "family": "Boosting",
-            "config": "max_iter=100, learning_rate=0.1, max_leaf_nodes=31",
-            "model": HistGradientBoostingClassifier(max_iter=100, learning_rate=0.1, max_leaf_nodes=31, random_state=42),
+            "config": "max_iter=150, learning_rate=0.08, max_leaf_nodes=63",
+            "model": HistGradientBoostingClassifier(max_iter=150, learning_rate=0.08, max_leaf_nodes=63, min_samples_leaf=25, l2_regularization=0.2, random_state=42),
             "subsample_train": None
         }
     }
@@ -204,6 +204,7 @@ def train_and_benchmark_models(
     print(f"\n[Model Selection] Champion Model: {best_model_name} (Top-1: {best_row['Top-1 Accuracy']*100:.2f}%)")
     
     joblib.dump(trained_estimators[best_model_name], "artifacts/best_classifier.joblib")
+    joblib.dump(trained_estimators[best_model_name], "artifacts/tuned_champion_model.joblib")
     joblib.dump(trained_estimators, "artifacts/all_trained_models.joblib")
     
     # Generate Diagnostic Visualizations

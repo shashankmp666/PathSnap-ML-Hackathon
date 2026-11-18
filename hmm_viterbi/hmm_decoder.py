@@ -20,8 +20,8 @@ from data_processing.dataset import TripData
 
 class RoadNetworkGraph:
     """
-    Lightweight topological graph representation for computing adjacency
-    and transition feasibility between directed road segments (arcs).
+    Lightweight topological graph representation for computing multi-hop reachability,
+    anti-U-turn checks, and transition feasibility between directed road segments (arcs).
     """
     def __init__(self, arcs_df: pd.DataFrame):
         self.u_nodes = arcs_df['u'].values
@@ -33,36 +33,51 @@ class RoadNetworkGraph:
         for arc_id in range(self.num_arcs):
             self.outgoing[self.u_nodes[arc_id]].append(arc_id)
             
-        # Precompute 1-hop and 2-hop topological adjacency
-        self.direct_successor = defaultdict(set)
+        # 1-hop successors
+        self.succ1 = defaultdict(set)
         for arc_id in range(self.num_arcs):
             v = self.v_nodes[arc_id]
             for succ_arc in self.outgoing[v]:
-                self.direct_successor[arc_id].add(succ_arc)
+                self.succ1[arc_id].add(succ_arc)
+                
+        # 2-hop successors (for micro-segments crossed in <1s)
+        self.succ2 = defaultdict(set)
+        for a in range(self.num_arcs):
+            for s1 in self.succ1[a]:
+                for s2 in self.succ1[s1]:
+                    self.succ2[a].add(s2)
 
     def is_connected(self, arc_prev: int, arc_curr: int) -> bool:
-        """Returns True if arc_curr directly connects from arc_prev."""
-        return arc_curr in self.direct_successor[arc_prev]
+        """Returns True if arc_curr connects directly (1-hop or 2-hop) from arc_prev."""
+        return (arc_curr in self.succ1[arc_prev]) or (arc_curr in self.succ2[arc_prev])
+
+    def is_reverse_arc(self, arc_prev: int, arc_curr: int) -> bool:
+        """Returns True if arc_curr is the exact opposite-lane reverse arc of arc_prev."""
+        return (self.u_nodes[arc_prev] == self.v_nodes[arc_curr]) and (self.v_nodes[arc_prev] == self.u_nodes[arc_curr])
 
 class HMMViterbiDecoder:
     """
     HMM sequential decoder that unifies classifier emission probabilities
-    with road-network topological transition dynamics.
+    with road-network multi-hop reachability and anti-reverse topological dynamics.
     """
     def __init__(
         self,
         sigma_z: float = 10.0,
         beta: float = 15.0,
         classifier_weight: float = 0.85,
-        stay_log_bonus: float = 2.5,
-        connected_log_bonus: float = 3.0,
-        unconnected_penalty: float = -12.0
+        stay_log_bonus: float = 6.0,
+        connected_log_bonus: float = 3.5,
+        two_hop_bonus: float = 2.5,
+        reverse_penalty: float = -100.0,
+        unconnected_penalty: float = -40.0
     ):
         self.sigma_z = sigma_z
         self.beta = beta
         self.classifier_weight = classifier_weight
         self.stay_log_bonus = stay_log_bonus
         self.connected_log_bonus = connected_log_bonus
+        self.two_hop_bonus = two_hop_bonus
+        self.reverse_penalty = reverse_penalty
         self.unconnected_penalty = unconnected_penalty
 
     def decode_trip(
@@ -82,10 +97,8 @@ class HMMViterbiDecoder:
         obs_groups = [group for _, group in candidates_df.groupby('obs_id', sort=True)]
         T = len(obs_groups)
         
-        # State representations per time step
         states_per_step = []
         emissions_per_step = []
-        proj_ratios_per_step = []
         
         prob_offset = 0
         for t in range(T):
@@ -93,24 +106,24 @@ class HMMViterbiDecoder:
             K = len(group)
             arcs = group['arc_id'].values
             perp_dists = group['perp_dist'].values
-            proj_ratios = group['proj_ratio'].values
+            h_diffs = group['heading_diff'].values
             probs = classifier_probs[prob_offset : prob_offset + K]
             prob_offset += K
             
-            # Compute log emission: combine ML classifier score with Gaussian spatial decay
-            log_clf = np.log(np.maximum(probs, 1e-4))
+            # Penalize reverse driving direction (> 90 deg)
+            dir_factor = (np.cos(np.radians(h_diffs)) > 0).astype(float)
+            calibrated_p = probs * dir_factor + 1e-4
+            
+            log_clf = np.log(np.maximum(calibrated_p, 1e-4))
             log_spatial = -0.5 * (perp_dists / self.sigma_z)**2
             log_emit = self.classifier_weight * log_clf + (1.0 - self.classifier_weight) * log_spatial
             
             states_per_step.append(arcs)
             emissions_per_step.append(log_emit)
-            proj_ratios_per_step.append(proj_ratios)
             
-        # Viterbi DP Tables
         V = [np.copy(emissions_per_step[0])]
         backpointers = []
         
-        # Baseline classifier-only predictions (argmax per observation)
         classifier_arcs = np.zeros(T, dtype=np.int32)
         classifier_arcs[0] = states_per_step[0][np.argmax(emissions_per_step[0])]
         
@@ -122,7 +135,6 @@ class HMMViterbiDecoder:
             prev_K = len(prev_states)
             curr_K = len(curr_states)
             
-            # Precompute pairwise transition matrix
             trans_matrix = np.full((prev_K, curr_K), self.unconnected_penalty, dtype=np.float64)
             
             for i in range(prev_K):
@@ -131,17 +143,18 @@ class HMMViterbiDecoder:
                     arc_j = curr_states[j]
                     
                     if arc_i == arc_j:
-                        # Vehicle remaining on the same segment
                         trans_matrix[i, j] = self.stay_log_bonus
-                    elif graph.is_connected(arc_i, arc_j):
-                        # Direct topologically connected road segment
+                    elif graph.is_reverse_arc(arc_i, arc_j):
+                        trans_matrix[i, j] = self.reverse_penalty
+                    elif arc_j in graph.succ1[arc_i]:
                         trans_matrix[i, j] = self.connected_log_bonus
+                    elif arc_j in graph.succ2[arc_i]:
+                        trans_matrix[i, j] = self.two_hop_bonus
                         
-            # Viterbi step: V[t, j] = max_i (V[t-1, i] + Trans[i, j]) + Emit[j]
-            prev_V = V[t - 1][:, np.newaxis]  # shape (prev_K, 1)
-            total_score = prev_V + trans_matrix  # shape (prev_K, curr_K)
+            prev_V = V[t - 1][:, np.newaxis]
+            total_score = prev_V + trans_matrix
             
-            best_prev_idx = np.argmax(total_score, axis=0)  # shape (curr_K,)
+            best_prev_idx = np.argmax(total_score, axis=0)
             best_scores = np.max(total_score, axis=0) + curr_emit
             
             V.append(best_scores)
@@ -161,7 +174,7 @@ class HMMViterbiDecoder:
             
         # Diagnostics
         true_arcs = candidates_df.drop_duplicates('obs_id')['true_arc_id'].values
-        has_ground_truth = (true_arcs[0] != -1)
+        has_ground_truth = (len(true_arcs) > 0 and true_arcs[0] != -1)
         
         viterbi_acc = float(np.mean(viterbi_arcs == true_arcs)) if has_ground_truth else 0.0
         clf_acc = float(np.mean(classifier_arcs == true_arcs)) if has_ground_truth else 0.0

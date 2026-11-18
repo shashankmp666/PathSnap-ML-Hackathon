@@ -24,7 +24,7 @@ def build_datasets(
     train_dir: str = "data/train",
     test_dir: str = "data/student_test",
     output_dir: str = "artifacts",
-    max_train_trips: int = 25,
+    max_train_trips: int = 40,
     max_test_trips: int = 10,
     k_candidates: int = 10
 ):

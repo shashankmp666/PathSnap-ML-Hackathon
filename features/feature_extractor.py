@@ -26,13 +26,17 @@ FEATURE_COLUMNS = [
     'speed_mps',
     'time_delta',
     'dist_rank',
-    'gaussian_prior'
+    'gaussian_prior',
+    'is_opposite_dir',
+    'perp_dist_sq',
+    'speed_cos_heading'
 ]
 
 def align_ground_truth_route(trip: TripData) -> np.ndarray:
     """
     Globally maps each GPS observation t to its true traversed arc_id
-    from the reference route using joint orthogonal distance and heading alignment.
+    from the reference route using monotonic Dynamic Programming alignment.
+    Guarantees strict forward sequence progression along the true route.
     """
     if trip.route_arcs is None:
         return np.full(len(trip.track_x), -1, dtype=np.int32)
@@ -41,29 +45,57 @@ def align_ground_truth_route(trip: TripData) -> np.ndarray:
     M = len(route)
     T = len(trip.track_x)
     
-    # Pre-extract geometry for route arcs
-    r_ax = trip.arc_ax[route]
-    r_ay = trip.arc_ay[route]
-    r_bx = trip.arc_bx[route]
-    r_by = trip.arc_by[route]
+    r_ax, r_ay = trip.arc_ax[route], trip.arc_ay[route]
+    r_bx, r_by = trip.arc_bx[route], trip.arc_by[route]
     headings = trip.arc_headings[route]
     
-    true_arc_ids = np.zeros(T, dtype=np.int32)
+    V = np.full((T, M), 1e9, dtype=np.float64)
+    backpointer = np.zeros((T, M), dtype=np.int32)
     
-    for t in range(T):
-        px = trip.track_x[t]
-        py = trip.track_y[t]
+    init_m = min(6, M)
+    d, _, _, _ = project_points_to_segments(trip.track_x[0], trip.track_y[0], r_ax[:init_m], r_ay[:init_m], r_bx[:init_m], r_by[:init_m])
+    h = angular_difference(trip.track_headings[0], headings[:init_m])
+    V[0, :init_m] = d + 0.15 * h + (100.0 * (h > 90))
+    
+    for t in range(1, T):
+        px, py = trip.track_x[t], trip.track_y[t]
         p_head = trip.track_headings[t]
+        valid_m = np.where(V[t-1] < 1e8)[0]
+        if len(valid_m) == 0:
+            valid_m = np.arange(M)
+        min_m = max(0, valid_m[0])
+        max_m = min(M, valid_m[-1] + 6)
         
-        dists, _, _, _ = project_points_to_segments(px, py, r_ax, r_ay, r_bx, r_by)
-        h_diffs = angular_difference(p_head, headings)
+        dists, _, _, _ = project_points_to_segments(px, py, r_ax[min_m:max_m], r_ay[min_m:max_m], r_bx[min_m:max_m], r_by[min_m:max_m])
+        h_diffs = angular_difference(p_head, headings[min_m:max_m])
+        emit_costs = dists + 0.15 * h_diffs + (100.0 * (h_diffs > 90))
         
-        # Combined cost: orthogonal distance (meters) + directional heading penalty
-        cost = dists + 0.12 * h_diffs
-        best_idx = int(np.argmin(cost))
-        true_arc_ids[t] = route[best_idx]
-        
-    return true_arc_ids
+        for local_idx, m in enumerate(range(min_m, max_m)):
+            cost_e = emit_costs[local_idx]
+            c_stay = V[t-1, m]
+            c_adv1 = V[t-1, m-1] + 1.0 if m >= 1 else 1e9
+            c_adv2 = V[t-1, m-2] + 4.0 if m >= 2 else 1e9
+            
+            cands = [c_stay, c_adv1, c_adv2]
+            best = np.argmin(cands)
+            if best == 0:
+                V[t, m] = c_stay + cost_e
+                backpointer[t, m] = m
+            elif best == 1:
+                V[t, m] = c_adv1 + cost_e
+                backpointer[t, m] = m - 1
+            else:
+                V[t, m] = c_adv2 + cost_e
+                backpointer[t, m] = m - 2
+                
+    best_m = np.argmin(V[-1])
+    aligned = np.zeros(T, dtype=np.int32)
+    aligned[-1] = route[best_m]
+    curr = best_m
+    for t in range(T - 2, -1, -1):
+        curr = backpointer[t + 1, curr]
+        aligned[t] = route[curr]
+    return aligned
 
 def extract_candidates_and_features(
     trip: TripData,
@@ -148,6 +180,9 @@ def extract_candidates_and_features(
                 'time_delta': p_dt,
                 'dist_rank': rank,
                 'gaussian_prior': gauss_prior[rank],
+                'is_opposite_dir': float(head_diffs[rank] > 90.0),
+                'perp_dist_sq': selected_dists[rank] ** 2,
+                'speed_cos_heading': p_speed * cos_diff[rank],
                 'is_match': is_match
             })
             
