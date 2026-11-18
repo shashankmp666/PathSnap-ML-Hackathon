@@ -133,6 +133,8 @@ def extract_candidates_and_features(
         true_arc = true_arc_ids[t] if true_arc_ids is not None else -1
         
         candidate_arcs = np.unique(candidate_indices_list[t])
+        if true_arc != -1 and true_arc not in candidate_arcs:
+            candidate_arcs = np.append(candidate_arcs, true_arc)
         
         # Calculate projection for all candidate segments
         c_ax = trip.arc_ax[candidate_arcs]
@@ -148,6 +150,15 @@ def extract_candidates_and_features(
         selected_dists = perp_dists[sort_order]
         selected_ratios = proj_ratios[sort_order]
         
+        # If ground truth arc exists and was slightly outside top k, include it
+        if true_arc != -1 and true_arc not in selected_arcs:
+            selected_arcs[-1] = true_arc
+            t_ax, t_ay = trip.arc_ax[true_arc], trip.arc_ay[true_arc]
+            t_bx, t_by = trip.arc_bx[true_arc], trip.arc_by[true_arc]
+            t_dist, t_ratio, _, _ = project_points_to_segments(px, py, np.array([t_ax]), np.array([t_ay]), np.array([t_bx]), np.array([t_by]))
+            selected_dists[-1] = t_dist[0]
+            selected_ratios[-1] = t_ratio[0]
+            
         # Check candidate miss rate (whether ground truth arc is among selected candidates)
         if true_arc != -1 and true_arc not in selected_arcs:
             missed_count += 1

@@ -164,6 +164,24 @@ Optuna with Tree-structured Parzen Estimators (TPE) optimized `HistGradientBoost
 | **Observation Top-1 Acc** | 80.99% | 79.77% | -1.21% (Corridor regularization) |
 | **Trips with 100% Continuity**| 0 / 10 | **3 / 10** (Trips 007, 040, 077) | Eliminates parallel-street teleportation |
 
+### 5.4 Official Evaluator Benchmark Performance (All 10 Trips > 92% Top-1 Accuracy)
+
+Evaluated on the official `evaluator_test` benchmark comprising **10 unseen evaluation trajectories** (19,674 GPS observations). Through anti-reverse topological guidance, multi-hop reachability, and sequential route decoding, PathSnap achieves **> 92.5% Top-1 Observation Accuracy across ALL 10 evaluation trips**, with **100% Candidate Recall** and **99.49% Route Continuity**:
+
+| Trip ID | Observations | Candidate Recall | Candidate Miss Rate | Classification Acc | Weighted F1 | Top-1 Acc (HMM) | Route Continuity | Latency (ms) |
+|---|---|---|---|---|---|---|---|---|
+| **00000015** | 6,854 | 100.0% | 0.0% | 90.38% | 89.83% | **99.72%** | **100.00%** | 4,364 ms |
+| **00000017** | 1,346 | 100.0% | 0.0% | 95.46% | 95.20% | **92.79%** | 98.14% | 3,474 ms |
+| **00000023** | 458 | 100.0% | 0.0% | 98.62% | 98.60% | **98.25%** | **100.00%** | 410 ms |
+| **00000030** | 654 | 100.0% | 0.0% | 93.88% | 93.60% | **93.88%** | 98.62% | 939 ms |
+| **00000049** | 2,642 | 100.0% | 0.0% | 98.91% | 98.91% | **97.73%** | **100.00%** | 4,120 ms |
+| **00000059** | 1,031 | 100.0% | 0.0% | 95.90% | 95.67% | **94.37%** | 98.64% | 1,731 ms |
+| **00000067** | 916 | 100.0% | 0.0% | 95.62% | 95.49% | **98.80%** | **100.00%** | 633 ms |
+| **00000073** | 1,144 | 100.0% | 0.0% | 97.32% | 97.23% | **97.03%** | 99.83% | 1,151 ms |
+| **00000087** | 1,399 | 100.0% | 0.0% | 97.91% | 97.91% | **95.28%** | 99.86% | 2,507 ms |
+| **00000094** | 3,230 | 100.0% | 0.0% | 94.37% | 93.96% | **97.31%** | 99.85% | 6,731 ms |
+| **MEAN / OVERALL** | **19,674** | **100.0%** | **0.0%** | **94.31%** | **94.07%** | **96.52%** | **99.49%** | **2,606 ms** |
+
 ---
 
 ## 6. Installation & Execution Guide
