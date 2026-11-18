@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PathSnap | Evaluator Control Panel</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .map-container iframe {
+            width: 100%;
+            height: 580px;
+            border: none;
+            border-radius: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between shadow-md">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-600 text-white p-2.5 rounded-lg shadow-sm">
+                <i class="fa-solid fa-route text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                    PathSnap <span class="text-xs bg-blue-500/20 text-blue-400 font-semibold px-2 py-0.5 rounded border border-blue-500/30">Laptop 2 UI</span>
+                </h1>
+                <p class="text-xs text-slate-400">Distributed Map-Matching & Sequential Route Reconstruction</p>
+            </div>
+        </div>
+
+        <!-- Connection Settings -->
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 text-sm">
+                <span class="text-slate-400 mr-2 text-xs font-medium">Laptop 1 API:</span>
+                <input id="apiBaseUrl" type="text" value="http://localhost:8000" class="bg-transparent text-slate-200 focus:outline-none text-xs w-48 font-mono">
+                <button onclick="checkHealth()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded ml-1 border border-slate-600">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+            </div>
+            <div id="connectionStatus" class="flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                <span>Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Left Column: Controls & Metrics (4 cols) -->
+        <div class="lg:col-span-4 space-y-6">
+            
+            <!-- Trip Selection Card -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+                    <span><i class="fa-solid fa-list-check mr-2 text-blue-400"></i> Reserved Evaluation Trips</span>
+                    <span id="tripCountBadge" class="text-xs bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">10 trips</span>
+                </h2>
+                
+                <label for="tripSelect" class="block text-xs text-slate-400 mb-1">Select an evaluation trip:</label>
+                <select id="tripSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <option value="00000000">Trip 00000000 (2,503 obs | 2542s)</option>
+                    <option value="00000007">Trip 00000007 (1,354 obs | 1374s)</option>
+                    <option value="00000009">Trip 00000009 (1,049 obs | 1073s)</option>
+                    <option value="00000040">Trip 00000040 (2,995 obs | 3045s)</option>
+                    <option value="00000052">Trip 00000052 (262 obs | 267s)</option>
+                    <option value="00000056">Trip 00000056 (3,958 obs | 4022s)</option>
+                    <option value="00000065">Trip 00000065 (768 obs | 781s)</option>
+                    <option value="00000076">Trip 00000076 (1,486 obs | 1509s)</option>
+                    <option value="00000077">Trip 00000077 (3,911 obs | 3980s)</option>
+                    <option value="00000091">Trip 00000091 (874 obs | 890s)</option>
+                </select>
+
+                <div class="mt-4 pt-4 border-t border-slate-700 flex flex-col gap-2">
+                    <button id="evalBtn" onclick="runEvaluation()" class="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all text-white font-medium py-2.5 px-4 rounded-lg flex items-center justify-center space-x-2 shadow-lg shadow-blue-600/30">
+                        <i class="fa-solid fa-play"></i>
+                        <span>Run Evaluation on Laptop 1</span>
+                    </button>
+                    <button id="predBtn" onclick="runPredictionOnly()" class="w-full bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium py-2 px-4 rounded-lg text-xs flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-diagram-project"></i>
+                        <span>Inference Only (Without Eval Ground Truth)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scoreboard Metrics Card -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4 flex items-center justify-between">
+                    <span><i class="fa-solid fa-chart-simple mr-2 text-emerald-400"></i> Server-Side Results</span>
+                    <span id="evalStatusBadge" class="text-xs bg-slate-700 text-slate-400 px-2 py-0.5 rounded">Awaiting Run</span>
+                </h2>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <!-- Top-1 Accuracy -->
+                    <div class="bg-slate-900 border border-slate-700/60 p-3 rounded-lg">
+                        <div class="text-xs text-slate-400 mb-1">Top-1 Accuracy</div>
+                        <div id="metricAcc" class="text-2xl font-bold text-blue-400">--</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">Observation-level match</div>
+                    </div>
+
+                    <!-- Route Continuity -->
+                    <div class="bg-slate-900 border border-slate-700/60 p-3 rounded-lg">
+                        <div class="text-xs text-slate-400 mb-1">Route Continuity</div>
+                        <div id="metricCont" class="text-2xl font-bold text-emerald-400">--</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">Topological connection</div>
+                    </div>
+
+                    <!-- Candidate Miss Rate -->
+                    <div class="bg-slate-900 border border-slate-700/60 p-3 rounded-lg">
+                        <div class="text-xs text-slate-400 mb-1">Candidate Miss</div>
+                        <div id="metricMiss" class="text-2xl font-bold text-amber-400">--</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">k=10 retrieval miss</div>
+                    </div>
+
+                    <!-- Latency -->
+                    <div class="bg-slate-900 border border-slate-700/60 p-3 rounded-lg">
+                        <div class="text-xs text-slate-400 mb-1">Inference Time</div>
+                        <div id="metricLatency" class="text-2xl font-bold text-purple-400">--</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">Total pipeline time</div>
+                    </div>
+                </div>
+
+                <!-- Traversed Arcs Summary -->
+                <div class="mt-4 p-3 bg-slate-900/80 rounded-lg border border-slate-700 text-xs flex justify-between items-center">
+                    <span class="text-slate-400">Reconstructed Sequence:</span>
+                    <span id="metricArcs" class="font-mono font-semibold text-slate-200">-- arcs</span>
+                </div>
+            </div>
+
+            <!-- Team & Defense Info -->
+            <div class="bg-slate-800/60 border border-slate-700/70 rounded-xl p-4 text-xs text-slate-400 space-y-2">
+                <div class="font-semibold text-slate-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-shield-halved text-emerald-400"></i> Academic Integrity Verification
+                </div>
+                <p>Ground-truth reference labels remain strictly server-side on Laptop 1. The client UI transmits only Trip IDs.</p>
+            </div>
+        </div>
+
+        <!-- Right Column: Interactive Folium Map (8 cols) -->
+        <div class="lg:col-span-8 flex flex-col bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center">
+                    <i class="fa-solid fa-map-location-dot mr-2 text-indigo-400"></i> Interactive Folium Trajectory Map
+                </h2>
+                <div class="flex items-center space-x-2 text-xs">
+                    <span class="flex items-center gap-1 text-blue-400"><i class="fa-solid fa-circle text-[8px]"></i> GPS</span>
+                    <span class="flex items-center gap-1 text-slate-400"><i class="fa-solid fa-minus text-[8px]"></i> Road</span>
+                    <span class="flex items-center gap-1 text-emerald-400"><i class="fa-solid fa-minus text-[8px]"></i> Truth</span>
+                    <span class="flex items-center gap-1 text-red-400"><i class="fa-solid fa-minus text-[8px]"></i> Predicted</span>
+                </div>
+            </div>
+
+            <!-- Map Viewport -->
+            <div class="flex-1 bg-slate-900 rounded-lg overflow-hidden border border-slate-700 map-container flex items-center justify-center min-h-[580px] relative">
+                <div id="mapPlaceholder" class="text-center p-8 text-slate-500">
+                    <i class="fa-solid fa-map text-5xl mb-3 text-slate-600"></i>
+                    <p class="text-sm font-medium">Select a trip and click "Run Evaluation" to render the interactive map</p>
+                    <p class="text-xs text-slate-600 mt-1">Multi-layer Folium visualization will load automatically</p>
+                </div>
+                <iframe id="mapFrame" src="" class="hidden w-full h-full"></iframe>
+                
+                <!-- Loading Overlay -->
+                <div id="loadingOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-3 z-50">
+                    <div class="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <div class="text-sm font-semibold text-slate-200">Executing PathSnap Prediction Pipeline...</div>
+                    <div class="text-xs text-slate-400">Candidate Generation &bull; Feature Extraction &bull; HMM Viterbi Decoding</div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-800/80 border-t border-slate-700/80 px-6 py-3 text-center text-xs text-slate-500">
+        PES University &bull; Department of Computer Science & Engineering &bull; UE24CS352A Machine Learning Hackathon
+    </footer>
+
+    <!-- Client Logic -->
+    <script>
+        function getBaseUrl() {
+            return document.getElementById('apiBaseUrl').value.trim().replace(/\/$/, "");
+        }
+
+        async function checkHealth() {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span><span>Checking...</span>`;
+            statusEl.className = "flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-yellow-500/20 text-yellow-300 border border-yellow-500/30";
+            
+            try {
+                const res = await fetch(`${getBaseUrl()}/health`);
+                if (res.ok) {
+                    const data = await res.json();
+                    statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Connected to Laptop 1</span>`;
+                    statusEl.className = "flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                } else {
+                    throw new Error("HTTP error " + res.status);
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400"></span><span>Disconnected</span>`;
+                statusEl.className = "flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30";
+            }
+        }
+
+        async function runEvaluation() {
+            const tripId = document.getElementById('tripSelect').value;
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.classList.remove('hidden');
+            
+            try {
+                const res = await fetch(`${getBaseUrl()}/evaluate/${tripId}`, { method: 'POST' });
+                if (!res.ok) throw new Error("Evaluation request failed: " + res.statusText);
+                const data = await res.json();
+                
+                // Update Metrics
+                document.getElementById('metricAcc').innerText = `${data.observation_top1_accuracy.toFixed(1)}%`;
+                document.getElementById('metricCont').innerText = `${data.route_continuity.toFixed(1)}%`;
+                document.getElementById('metricMiss').innerText = `${data.candidate_miss_rate.toFixed(1)}%`;
+                document.getElementById('metricLatency').innerText = `${data.inference_latency_ms.toFixed(0)} ms`;
+                document.getElementById('metricArcs').innerText = `${data.total_reconstructed_arcs} segments (${data.total_observations} obs)`;
+                
+                const badge = document.getElementById('evalStatusBadge');
+                badge.innerText = "Evaluated";
+                badge.className = "text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 font-semibold";
+                
+                // Load Map
+                const mapFrame = document.getElementById('mapFrame');
+                const placeholder = document.getElementById('mapPlaceholder');
+                mapFrame.src = `${getBaseUrl()}${data.map_url}?t=${Date.now()}`;
+                mapFrame.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+                
+            } catch (err) {
+                alert("Evaluation error: " + err.message);
+            } finally {
+                overlay.classList.add('hidden');
+            }
+        }
+
+        async function runPredictionOnly() {
+            const tripId = document.getElementById('tripSelect').value;
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.classList.remove('hidden');
+            
+            try {
+                const res = await fetch(`${getBaseUrl()}/predict/${tripId}`, { method: 'POST' });
+                if (!res.ok) throw new Error("Prediction failed: " + res.statusText);
+                const data = await res.json();
+                
+                document.getElementById('metricAcc').innerText = "N/A";
+                document.getElementById('metricCont').innerText = "--";
+                document.getElementById('metricMiss').innerText = "--";
+                document.getElementById('metricLatency').innerText = `${data.inference_latency_ms.toFixed(0)} ms`;
+                document.getElementById('metricArcs').innerText = `${data.total_reconstructed_arcs} segments`;
+                
+                const badge = document.getElementById('evalStatusBadge');
+                badge.innerText = "Inference Done";
+                badge.className = "text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30";
+                
+                const mapFrame = document.getElementById('mapFrame');
+                const placeholder = document.getElementById('mapPlaceholder');
+                mapFrame.src = `${getBaseUrl()}${data.map_url}?t=${Date.now()}`;
+                mapFrame.classList.remove('hidden');
+                placeholder.classList.add('hidden');
+            } catch (err) {
+                alert("Prediction error: " + err.message);
+            } finally {
+                overlay.classList.add('hidden');
+            }
+        }
+
+        // Check health on load
+        window.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+        });
+    </script>
+</body>
+</html>
