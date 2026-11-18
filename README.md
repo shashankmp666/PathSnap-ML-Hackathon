@@ -16,28 +16,28 @@ PathSnap resolves these challenges via a decoupled two-stage architecture:
 [ Raw GPS Stream ] (lon, lat, speed, heading, timestamp)
         │
         ▼
-[ Spatial Preprocessing & Projection ] (WGS84 -> Cartesian Metric Coordinates)
+[ Spatial Preprocessing & Projection ] (WGS84 -> Cartesian Metric Coordinates in meters)
         │
         ▼
-[ cKDTree Segment Indexing ] (Bounding corridor search, R = 50m, K = 10 candidates)
+[ cKDTree Segment Indexing ] (Bounding corridor search: 50m radius, up to 10 candidates)
         │
         ▼
-[ 14-D Feature Extractor ] (Spatial orthogonal distance, angular alignment, kinematics)
+[ 14-D Feature Extractor ] (Perpendicular distance, heading alignment, speed consistency)
         │
         ▼
 [ Bayesian-Tuned Gradient Booster ] (Candidate probability calibration)
         │
         ▼
-[ HMM Viterbi Sequential Decoder ] (Emission log-odds + Multi-hop topological graph transition)
+[ HMM Viterbi Sequential Decoder ] (Emission confidence + Multi-hop network topology)
         │
         ├─────────────────────────────┬─────────────────────────────┐
         ▼                             ▼                             ▼
 [ Continuous Route Sequence ]    [ Evaluation Telemetry ]    [ Interactive Folium Map ]
- (Traversed Arcs [e1, e2, ...])   (Top-1 Acc, Continuity)    (Red GPS, Cyan Snapped Path)
+ (Reconstructed Road Arcs)        (Top-1 Acc, Continuity)    (Red GPS, Cyan Snapped Path)
 ```
 
-1. **Spatial Candidate Generation & Kinematic Scoring**: For each GPS point $z_t$, nearby candidate road segments within an empirical 50-meter bounding radius are retrieved using a 2D spatial `cKDTree`. A 14-dimensional geometric, kinematic, and topological feature vector is extracted and evaluated by a Bayesian-tuned Gradient Boosted Decision Ensemble (`HistGradientBoostingClassifier`).
-2. **Topological Sequence Decoding**: Pointwise candidate emission probabilities are combined with road network topological transition constraints in an HMM Viterbi decoder. Transitions penalize reverse-lane traversals ($-100.0$) and disconnected jumps ($-40.0$) while rewarding segment continuation ($+6.0$), 1-hop network succession ($+3.5$), and 2-hop traversal ($+2.5$), enforcing topological validity and route continuity.
+1. **Spatial Candidate Generation & Kinematic Scoring**: For each GPS observation, nearby candidate road segments within an empirical 50-meter bounding radius are retrieved using a 2D spatial `cKDTree`. A 14-dimensional geometric, kinematic, and topological feature vector is extracted and evaluated by a Bayesian-tuned Gradient Boosted Decision Ensemble (`HistGradientBoostingClassifier`).
+2. **Topological Sequence Decoding**: Pointwise candidate emission probabilities are combined with road network topological transition constraints in an HMM Viterbi decoder. Transitions penalize reverse-lane traversals and disconnected jumps while rewarding segment continuation, 1-hop network succession, and 2-hop traversal, enforcing topological validity and route continuity.
 
 ---
 
@@ -68,42 +68,40 @@ Evaluated on the official `evaluator_test` partition containing 10 full-length t
 ## 3. Data Processing & Spatial Indexing
 
 ### Coordinate Projection
-Raw longitude and latitude coordinates are projected into local Cartesian metric coordinates $(x, y)$ in meters using equirectangular projection centered at the regional centroid:
-$$x = R_{\text{earth}} \cdot (\lambda - \lambda_0) \cdot \cos\left(\frac{\phi + \phi_0}{2}\right), \quad y = R_{\text{earth}} \cdot (\phi - \phi_0)$$
-where $R_{\text{earth}} = 6{,}371{,}000\text{ m}$. This metric conversion enables closed-form vector geometry (point-to-segment projections, Euclidean distances, and cross products) without spherical trigonometry overhead.
+Raw longitude and latitude coordinates are converted into a local metric Cartesian grid (X and Y in meters) using an equirectangular projection centered at the regional centroid. This metric conversion allows fast Euclidean geometry (point-to-segment orthogonal distances, along-track projections, and vector cross products) without the high computational overhead of spherical trigonometry.
 
 ### Spatial Candidate Retrieval via `cKDTree`
-The road network consists of directed line segments (arcs) defined by start nodes $u = (u_x, u_y)$ and end nodes $v = (v_x, v_y)$. 
-- Each arc is indexed by its spatial midpoint $M_e = \frac{u + v}{2}$ in a SciPy 2D `cKDTree`.
-- For every GPS observation $z_t = (x_t, y_t)$, candidate arcs within a search radius $R = 50\text{ m}$ (up to $K = 10$ candidates) are queried in $O(\log |E|)$ time.
-- If fewer than 2 candidates fall within $R$, the query radius expands dynamically to guarantee candidate availability.
+The road network consists of directed line segments (arcs) defined by start nodes (u) and end nodes (v).
+- Each road segment is indexed by its spatial midpoint in a SciPy 2D `cKDTree`.
+- For every GPS observation, candidate road segments within an initial 50-meter radius (up to 10 candidates per point) are retrieved via fast spatial lookup.
+- If fewer than 2 candidates fall within the initial radius, the search radius expands dynamically to guarantee candidate coverage.
 - **Empirical Validation**: Achieves **100.0% Candidate Recall** across all 19,674 test points with zero candidate misses.
 
 ### Monotonic Ground-Truth Sequence Alignment
-To generate reliable supervised training labels from reference route sequences, a dynamic programming sequence aligner matches each GPS observation $t \in [1, T]$ to an arc index $m \in [1, M]$ along the recorded route $R = (r_1, r_2, \dots, r_M)$. The transition cost enforces forward monotonicity ($m \to m$, $m \to m+1$, or $m \to m+2$), preventing non-physical backwards skips along the route.
+To generate reliable supervised training labels from reference routes, a dynamic programming sequence aligner matches each GPS observation forward along the recorded route. The aligner allows advancing forward along the route or staying on the current segment, preventing backward skips and ensuring realistic vehicle progression.
 
 ---
 
 ## 4. 14-Dimensional Feature Representation
 
-For every GPS observation $z_t$ and retrieved candidate road segment $e_j = (u, v)$, PathSnap constructs a 14-dimensional feature vector:
+For every GPS observation and retrieved candidate road segment, PathSnap constructs a 14-dimensional feature vector:
 
-| # | Feature Name | Representation / Formula | Physical & Geometric Rationale |
+| # | Feature Name | Category | Description & Technical Rationale |
 |:---:|---|---|---|
-| 1 | `perp_dist` | $d_{\perp} = \frac{\|(v - u) \times (u - z_t)\|}{\|v - u\|}$ | Orthogonal distance (meters) from the GPS coordinate to the line segment. |
-| 2 | `proj_ratio` | $u = \frac{(z_t - u) \cdot (v - u)}{\|v - u\|^2}$ | Normalized along-track projection parameter ($u \in [0, 1]$ on segment). |
-| 3 | `dist_to_start` | $\|z_t - u\|$ | Euclidean distance (meters) to segment entry node $u$. |
-| 4 | `dist_to_end` | $\|z_t - v\|$ | Euclidean distance (meters) to segment exit node $v$. |
-| 5 | `arc_length` | $\|v - u\|$ | Length of the road segment in meters. Disfavors micro-segments during fast travel. |
-| 6 | `heading_diff` | $\|\Delta \theta\| = \|\theta_{\text{vehicle}} - \theta_{\text{segment}}\|$ | Absolute angular deviation ($[0^\circ, 180^\circ]$) between vehicle heading and arc azimuth. |
-| 7 | `cos_heading_diff`| $\cos(\Delta \theta) \in [-1.0, 1.0]$ | Directional alignment factor. Negative values flag opposing traffic lanes. |
-| 8 | `speed_mps` | $v_t = \|\mathbf{x}_t - \mathbf{x}_{t-1}\| / \Delta t$ | Instantaneous vehicle speed in meters per second. |
-| 9 | `time_delta` | $\Delta t = t_t - t_{t-1}$ | Sampling interval (seconds). Normalizes kinematic change over signal gaps. |
-| 10 | `dist_rank` | $\text{rank}(d_{\perp}) \in \{1, 2, \dots, K\}$ | Relative proximity ranking among the $K$ candidates for observation $t$. |
-| 11 | `gaussian_prior` | $\exp\left(-\frac{d_{\perp}^2}{2\sigma_z^2}\right)$ | Uncalibrated spatial emission prior based on GPS measurement variance ($\sigma_z = 8.5\text{ m}$). |
-| 12 | `is_opposite_dir` | $\mathbb{I}[\|\Delta \theta\| > 90^\circ]$ | Binary indicator flagging candidate segments oriented against vehicle direction of travel. |
-| 13 | `perp_dist_sq` | $d_{\perp}^2$ | Quadratic distance penalty, heavily suppressing distant outlier road segments. |
-| 14 | `speed_cos_heading`| $v_t \cdot \cos(\Delta \theta)$ | Velocity-weighted directional coherence. High speed in opposing direction is penalized. |
+| 1 | `perp_dist` | Spatial Geometry | Orthogonal distance (meters) from the GPS coordinate to the candidate road segment centerline. |
+| 2 | `proj_ratio` | Spatial Geometry | Along-track projection ratio (0.0 at start node, 1.0 at end node), indicating if the point falls directly alongside the segment. |
+| 3 | `dist_to_start` | Spatial Geometry | Euclidean distance (meters) from the GPS point to the segment entry intersection. |
+| 4 | `dist_to_end` | Spatial Geometry | Euclidean distance (meters) from the GPS point to the segment exit intersection. |
+| 5 | `arc_length` | Spatial Geometry | Total segment length in meters. Prevents over-matching micro-segments during high-speed cruising. |
+| 6 | `heading_diff` | Heading Alignment | Absolute angular difference (0 to 180 degrees) between vehicle direction of travel and segment azimuth. |
+| 7 | `cos_heading_diff` | Heading Alignment | Directional cosine alignment factor (-1.0 to 1.0). Negative values flag opposing traffic flow. |
+| 8 | `speed_mps` | Kinematics | Instantaneous vehicle speed in meters per second computed from consecutive GPS coordinates. |
+| 9 | `time_delta` | Kinematics | Sampling interval in seconds between consecutive GPS observations. Normalizes kinematic change over signal gaps. |
+| 10 | `dist_rank` | Spatial Indexing | Proximity rank among all retrieved candidates for this GPS point (rank 1 is closest). |
+| 11 | `gaussian_prior` | Spatial Prior | Distance-based spatial probability score assuming typical GPS measurement noise (8.5m standard deviation). |
+| 12 | `is_opposite_dir` | Heading Filter | Binary flag set to 1 if the candidate segment points against the vehicle travel direction (heading delta > 90 degrees). |
+| 13 | `perp_dist_sq` | Spatial Geometry | Squared perpendicular distance, giving strong suppression to distant outlier road segments. |
+| 14 | `speed_cos_heading` | Kinematic Alignment | Speed-weighted directional coherence, strongly penalizing high speeds against the road direction. |
 
 ---
 
@@ -113,11 +111,11 @@ We trained and evaluated five distinct machine learning model families using **5
 
 | Model | Algorithm Family | Key Configuration | 5-Fold CV Macro F1 | Classification Accuracy | Weighted F1 | Top-1 Accuracy | Route Continuity | Log Loss | Latency (ms/cand) |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Logistic Regression** | Linear / Probabilistic | $C = 2.0$, $L_2$ penalty, `max_iter` = 1000 | 0.8386 | 95.28% | 95.26% | 77.72% | 89.97% | 0.1230 | **0.0001 ms** |
-| **KNN (Distance-Weighted)** | Instance-Based | $k = 15$, weights = distance, Euclidean | 0.8319 | 95.25% | 95.17% | 75.84% | 88.69% | 0.1809 | 0.0363 ms |
-| **Decision Tree** | Tree-Based | Gini, `max_depth` = 12, `min_leaf` = 15 | 0.8449 | 95.52% | 95.48% | 77.10% | 89.09% | 0.1252 | **0.0001 ms** |
-| **Random Forest** | Bagging Ensemble | 100 trees, `max_depth` = 15, `min_leaf` = 4 | **0.8515** | **95.71%** | **95.62%** | 77.65% | 90.14% | 0.1099 | 0.0009 ms |
-| **HistGradientBoosting** | Gradient Boosting | 150 trees, $\eta = 0.08$, `max_leaf` = 63 | 0.8510 | 95.66% | 95.61% | **77.75%** | **90.26%** | **0.1085** | 0.0014 ms |
+| **Logistic Regression** | Linear / Probabilistic | C=2.0, L2 penalty, max_iter=1000 | 0.8386 | 95.28% | 95.26% | 77.72% | 89.97% | 0.1230 | **0.0001 ms** |
+| **KNN (Distance-Weighted)** | Instance-Based | k=15, weights=distance, Euclidean | 0.8319 | 95.25% | 95.17% | 75.84% | 88.69% | 0.1809 | 0.0363 ms |
+| **Decision Tree** | Tree-Based | Gini, max_depth=12, min_leaf=15 | 0.8449 | 95.52% | 95.48% | 77.10% | 89.09% | 0.1252 | **0.0001 ms** |
+| **Random Forest** | Bagging Ensemble | 100 trees, max_depth=15, min_leaf=4 | **0.8515** | **95.71%** | **95.62%** | 77.65% | 90.14% | 0.1099 | 0.0009 ms |
+| **HistGradientBoosting** | Gradient Boosting | 150 trees, lr=0.08, max_leaf=63 | 0.8510 | 95.66% | 95.61% | **77.75%** | **90.26%** | **0.1085** | 0.0014 ms |
 
 *Data recorded in `results/tables/model_comparison.csv`.*
 
@@ -125,66 +123,46 @@ We trained and evaluated five distinct machine learning model families using **5
 
 `HistGradientBoostingClassifier` was tuned using Tree-structured Parzen Estimators (TPE) across 20 trials on 5-fold `GroupKFold` CV:
 
-- **Search Distributions**:
-  - `learning_rate`: $\text{LogUniform}(0.02, 0.25)$
-  - `max_leaf_nodes`: $\text{IntUniform}(15, 63)$
-  - `min_samples_leaf`: $\text{IntUniform}(10, 80)$
-  - `l2_regularization`: $\text{LogUniform}(10^{-4}, 5.0)$
-  - `max_iter`: $\text{IntCategorical}(\{60, 80, 100, 120, 140\})$
-- **Champion Parameters**:
-  - `learning_rate` = 0.02038
-  - `max_leaf_nodes` = 56
-  - `min_samples_leaf` = 44
-  - `l2_regularization` = 0.1813
-  - `max_iter` = 100
-- **Outcome**: The Bayesian-tuned model produced superior probability calibration, directly improving candidate log-odds feeding into the downstream HMM Viterbi decoder.
+- **Search Configuration**:
+  - `learning_rate`: Explored between 0.02 and 0.25 (optimal: **0.0204**)
+  - `max_leaf_nodes`: Explored between 15 and 63 (optimal: **56**)
+  - `min_samples_leaf`: Explored between 10 and 80 (optimal: **44**)
+  - `l2_regularization`: Explored between 0.0001 and 5.0 (optimal: **0.1813**)
+  - `max_iter`: Explored across 60, 80, 100, 120, 140 trees (optimal: **100**)
+- **Outcome**: The Bayesian-tuned model produced superior probability calibration, preventing overconfident probability spikes and providing balanced emission scores to the downstream HMM Viterbi decoder.
 
 ---
 
-## 6. Mathematical Formulation: Topological HMM & Viterbi Decoder
+## 6. Sequential HMM & Viterbi Route Decoder
 
-Pointwise classification treats each observation independently. To resolve parallel road ambiguity and overpass intersections, PathSnap models the sequence as a Hidden Markov Model (HMM).
+Pointwise classification evaluates each GPS point in isolation. In urban street grids with parallel alleys, highway ramps, and dual-carriageway boulevards, nearest-distance matching causes the predicted path to jump erratically between opposing lanes or cross overpasses.
+
+PathSnap models the route as a Hidden Markov Model (HMM) solved via the Viterbi dynamic programming algorithm.
 
 ```
-States (True Road Arcs):     ( s_{t-1} ) ─────── Transition A(s_{t-1}, s_t) ───────> (   s_t   )
-                                  │                                                        │
-                         Emission P(z|s)                                          Emission P(z|s)
-                                  ▼                                                        ▼
-Observations (GPS Points):   [ z_{t-1} ]                                              [   z_t   ]
+States (True Road Arcs):     ( Prev Arc ) ──── Directed Graph Transition ────> ( Current Arc )
+                                  │                                                   │
+                            Emission Score                                      Emission Score
+                                  ▼                                                   ▼
+Observations (GPS Points):   [ GPS t-1 ]                                         [  GPS t  ]
 ```
 
-### State Space
-For each GPS point $z_t$, the hidden state space is restricted to the candidate set $C_t = \{c_{t,1}, c_{t,2}, \dots, c_{t,K}\}$ ($K \le 10$) retrieved by spatial indexing.
+### Candidate Emission Scoring
+Each candidate road segment receives an emission score combining:
+1. **Classifier Confidence (85% weight)**: Probability output from the trained gradient boosted model.
+2. **Spatial Proximity (15% weight)**: Distance-based score penalizing points that lie far from the road centerline.
+3. **Directional Gating Filter**: Candidates oriented more than 90 degrees away from the vehicle heading are sharply suppressed to prevent snapping to opposing lanes.
 
-### Emission Log-Probability
-The emission probability combines the calibrated classifier probability $P_{\text{clf}}(y=1 \mid \mathbf{x}_{t,j})$ with a zero-mean Gaussian spatial error model:
+### Topological Transition Logic
+The road network adjacency graph enforces physical movement logic between consecutive timestamps:
+- **Segment Continuation (+6.0 bonus)**: High reward for remaining on the same road segment between consecutive 1-second pings.
+- **Direct 1-Hop Connectivity (+3.5 bonus)**: Reward for transitioning to a directly connected downstream road segment.
+- **2-Hop Micro-Segment Traversal (+2.5 bonus)**: Reward for traversing very short road links crossed in less than one sampling interval.
+- **Opposing-Lane / U-Turn Penalty (-100.0 penalty)**: Severe penalty blocking non-physical U-turns into opposing traffic corridors.
+- **Disconnected Jump Penalty (-40.0 penalty)**: Heavy penalty blocking jumps between road segments that share no physical intersection.
 
-$$\ln P(z_t \mid s_t = c_{t,j}) = w_{\text{clf}} \cdot \ln P_{\text{clf}}(y=1 \mid \mathbf{x}_{t,j}) + (1 - w_{\text{clf}}) \left( -\frac{1}{2} \left(\frac{d_{\perp}(z_t, c_{t,j})}{\sigma_z}\right)^2 \right)$$
-
-where $w_{\text{clf}} = 0.85$ and $\sigma_z = 10.0\text{ m}$. An angular gating filter suppresses emissions when heading deviation exceeds $90^\circ$:
-$$P(z_t \mid c_{t,j}) \gets P(z_t \mid c_{t,j}) \cdot \mathbb{I}[\cos(\Delta \theta) > 0] + 10^{-4}$$
-
-### Topological Transition Matrix
-The transition log-score $\ln A(c_{t-1, i}, c_{t, j})$ is defined over the road network adjacency graph $G = (V, E)$:
-
-$$\ln A(c_{t-1, i}, c_{t, j}) = \begin{cases} 
-+6.0 & \text{if } c_{t-1, i} = c_{t, j} \quad (\text{Vehicle remains on current segment}) \\
-+3.5 & \text{if } c_{t, j} \in \text{succ}_1(c_{t-1, i}) \quad (\text{Direct 1-hop downstream road connectivity}) \\
-+2.5 & \text{if } c_{t, j} \in \text{succ}_2(c_{t-1, i}) \quad (\text{2-hop successor; micro-segment traversed in } <1\text{s}) \\
--100.0 & \text{if } c_{t, j} = \text{reverse}(c_{t-1, i}) \quad (\text{Anti-U-turn / opposite-lane violation}) \\
--40.0 & \text{otherwise} \quad (\text{Topologically disconnected jump})
-\end{cases}$$
-
-### Viterbi Dynamic Programming Recurrence
-The optimal sequence of road segments $S^* = (s_1^*, s_2^*, \dots, s_T^*)$ is solved in $O(T \cdot K^2)$ time:
-
-1. **Initialization ($t = 0$)**:
-   $$V_0(j) = \ln P(z_0 \mid c_{0, j}) \quad \forall j \in \{1, \dots, |C_0|\}$$
-2. **Forward Recursion ($t = 1 \dots T-1$)**:
-   $$V_t(j) = \max_{i \in \{1, \dots, |C_{t-1}|\}} \left[ V_{t-1}(i) + \ln A(c_{t-1, i}, c_{t, j}) \right] + \ln P(z_t \mid c_{t, j})$$
-   $$B_t(j) = \arg\max_{i \in \{1, \dots, |C_{t-1}|\}} \left[ V_{t-1}(i) + \ln A(c_{t-1, i}, c_{t, j}) \right]$$
-3. **Termination & Backtracking**:
-   $$s_T^* = \arg\max_{j \in \{1, \dots, |C_T|\}} V_{T-1}(j), \quad s_{t-1}^* = B_t(s_t^*)$$
+### Viterbi Dynamic Programming Search
+The Viterbi algorithm computes the globally highest-scoring sequence of connected road segments across the entire trajectory in a single forward pass and backtracks to produce the finalized continuous route.
 
 ### Sequential Continuity Gain
 
@@ -192,7 +170,7 @@ The optimal sequence of road segments $S^* = (s_1^*, s_2^*, \dots, s_T^*)$ is so
 |---|:---:|:---:|:---:|
 | **Route Continuity** | 89.33% | **99.71%** | **+10.38%** |
 | **Trips Reaching 100% Continuity** | 0 / 10 | **4 / 10** | **+4 trips** |
-| **Reverse-Lane Erratic Jumps** | Prevalent in parallel corridors | **Zero** (penalized at $-100.0$) | Completely eliminated |
+| **Reverse-Lane Erratic Jumps** | Prevalent in parallel corridors | **Zero** | Completely eliminated |
 
 ---
 
@@ -208,7 +186,7 @@ Client / Evaluator UI <─── JSON Response + Folium Map <─ (Top-1 Acc, Con
 ```
 
 ### Endpoints
-- `POST /predict/{trip_id}`: Executes full map-matching pipeline. Ingests raw GPS tracks, generates spatial candidates, executes model inference, runs Viterbi decoding, and generates an interactive Folium map.
+- `POST /predict/{trip_id}`: Executes the full map-matching pipeline. Ingests raw GPS tracks, generates spatial candidates, executes model inference, runs Viterbi decoding, and generates an interactive Folium map.
 - `POST /evaluate/{trip_id}`: Evaluator audit route verification. Evaluates the predicted sequence against server-side ground truth without leaking labels to the client. Returns Top-1 accuracy, route continuity, and candidate miss rate.
 - `GET /trips`: Enumerates available trajectory datasets across partitions with observation counts, bounding boxes, and duration.
 - `GET /health`: Healthcheck endpoint reporting model readiness and loaded configurations.
