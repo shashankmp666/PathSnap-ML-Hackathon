@@ -185,6 +185,28 @@
             return document.getElementById('apiBaseUrl').value.trim().replace(/\/$/, "");
         }
 
+        async function loadTrips() {
+            try {
+                const res = await fetch(`${getBaseUrl()}/trips`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const tripSelect = document.getElementById('tripSelect');
+                    if (data.trips && data.trips.length > 0) {
+                        tripSelect.innerHTML = "";
+                        data.trips.forEach(t => {
+                            const opt = document.createElement('option');
+                            opt.value = t.trip_id;
+                            opt.textContent = `Trip ${t.trip_id} (${t.total_observations.toLocaleString()} obs | ${t.duration_seconds.toFixed(0)}s | ${t.partition})`;
+                            tripSelect.appendChild(opt);
+                        });
+                        document.getElementById('tripCountBadge').innerText = `${data.trips.length} trips`;
+                    }
+                }
+            } catch (e) {
+                console.warn("Could not dynamically load trips:", e);
+            }
+        }
+
         async function checkHealth() {
             const statusEl = document.getElementById('connectionStatus');
             statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span><span>Checking...</span>`;
@@ -196,6 +218,7 @@
                     const data = await res.json();
                     statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Connected to Laptop 1</span>`;
                     statusEl.className = "flex items-center space-x-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                    await loadTrips();
                 } else {
                     throw new Error("HTTP error " + res.status);
                 }
@@ -274,6 +297,9 @@
 
         // Check health on load
         window.addEventListener('DOMContentLoaded', () => {
+            if (window.location.protocol.startsWith('http')) {
+                document.getElementById('apiBaseUrl').value = window.location.origin;
+            }
             checkHealth();
         });
     </script>
