@@ -1,95 +1,260 @@
 # PathSnap
 
-Map-matching and sequential route reconstruction for noisy GPS trajectories on directed road networks. Combines spatial candidate retrieval (`cKDTree`), kinematic feature extraction, supervised gradient boosting, and topological Hidden Markov Model (HMM) Viterbi decoding to reconstruct vehicle routes with high observation accuracy and continuous network connectivity.
+**Distributed Map-Matching and Sequential Route Reconstruction for Noisy GPS Trajectories on Directed Road Networks**
+
+PathSnap couples spatial indexing (`cKDTree`), kinematic candidate feature extraction, supervised gradient boosted probability scoring, and topological Hidden Markov Model (HMM) Viterbi dynamic programming to reconstruct vehicle routes with high observation accuracy and continuous network connectivity.
 
 ---
 
-## Overview
+## 1. System Overview & Architecture
 
-In urban environments, raw GPS sensor data exhibits significant spatial noise due to multipath reflection, tall buildings, and discrete sampling intervals (typically 1 Hz). Unconstrained pointwise matching often leads to unrealistic jumps between parallel lanes, opposing traffic corridors, or disconnected road segments.
+In urban road environments, raw GPS sensor streams suffer from multipath interference, satellite signal occlusion, clock drift, and discrete 1 Hz sampling intervals. Naive pointwise nearest-segment matching creates erratic path predictions, such as jumping between parallel service lanes, snapping to opposing one-way roads, or crossing disconnected elevated overpasses.
 
-PathSnap solves this through a two-stage formulation:
-1. **Candidate Retrieval & Scoring**: For each GPS point, nearby road segments are retrieved using a 2D spatial `cKDTree`. An 11-dimensional geometric and kinematic feature vector (perpendicular distance, heading delta, along-track projection, speed consistency) is scored by a trained Gradient Boosted Decision Ensemble.
-2. **Sequential Route Decoding**: Candidate emission scores are combined with road network topological transition matrices in an HMM Viterbi decoder. Reverse-lane transitions and disconnected hops are heavily penalized, reconstructing a continuous directed trajectory through the road network.
+PathSnap resolves these challenges via a decoupled two-stage architecture:
 
----
+```
+[ Raw GPS Stream ] (lon, lat, speed, heading, timestamp)
+        │
+        ▼
+[ Spatial Preprocessing & Projection ] (WGS84 -> Cartesian Metric Coordinates)
+        │
+        ▼
+[ cKDTree Segment Indexing ] (Bounding corridor search, R = 50m, K = 10 candidates)
+        │
+        ▼
+[ 14-D Feature Extractor ] (Spatial orthogonal distance, angular alignment, kinematics)
+        │
+        ▼
+[ Bayesian-Tuned Gradient Booster ] (Candidate probability calibration)
+        │
+        ▼
+[ HMM Viterbi Sequential Decoder ] (Emission log-odds + Multi-hop topological graph transition)
+        │
+        ├─────────────────────────────┬─────────────────────────────┐
+        ▼                             ▼                             ▼
+[ Continuous Route Sequence ]    [ Evaluation Telemetry ]    [ Interactive Folium Map ]
+ (Traversed Arcs [e1, e2, ...])   (Top-1 Acc, Continuity)    (Red GPS, Cyan Snapped Path)
+```
 
-## Benchmark Results
-
-### Official Evaluator Test Benchmark (10 Unseen Trips)
-
-Evaluated on the official `evaluator_test` partition containing 10 trajectories (19,674 GPS observations). PathSnap achieves **> 92% Top-1 Accuracy across all 10 evaluation trips**, with **100% Candidate Recall** and **99.49% Route Continuity**:
-
-| Trip ID | Observations | Candidate Recall | Candidate Miss Rate | Classification Acc | Weighted F1 | Top-1 Acc (HMM) | Route Continuity | Latency |
-|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `00000015` | 6,854 | 100.0% | 0.0% | 90.38% | 89.83% | **99.72%** | 100.00% | 4.4 s |
-| `00000017` | 1,346 | 100.0% | 0.0% | 95.46% | 95.20% | **92.79%** | 98.14% | 3.5 s |
-| `00000023` | 458 | 100.0% | 0.0% | 98.62% | 98.60% | **98.25%** | 100.00% | 0.4 s |
-| `00000030` | 654 | 100.0% | 0.0% | 93.88% | 93.60% | **93.88%** | 98.62% | 0.9 s |
-| `00000049` | 2,642 | 100.0% | 0.0% | 98.91% | 98.91% | **97.73%** | 100.00% | 4.1 s |
-| `00000059` | 1,031 | 100.0% | 0.0% | 95.90% | 95.67% | **94.37%** | 98.64% | 1.7 s |
-| `00000067` | 916 | 100.0% | 0.0% | 95.62% | 95.49% | **98.80%** | 100.00% | 0.6 s |
-| `00000073` | 1,144 | 100.0% | 0.0% | 97.32% | 97.23% | **97.03%** | 99.83% | 1.2 s |
-| `00000087` | 1,399 | 100.0% | 0.0% | 97.91% | 97.91% | **95.28%** | 99.86% | 2.5 s |
-| `00000094` | 3,230 | 100.0% | 0.0% | 94.37% | 93.96% | **97.31%** | 99.85% | 6.7 s |
-| **OVERALL** | **19,674** | **100.0%** | **0.0%** | **94.31%** | **94.07%** | **96.52%** | **99.49%** | **2.6 s** |
-
-### Multi-Model Comparison (5 Algorithm Families)
-
-Models evaluated across 5-fold `GroupKFold` cross-validation (isolated by `trip_id`):
-
-| Model | Family | 5-Fold CV Macro F1 | Test Top-1 Acc | Route Continuity | Test Macro F1 | Log Loss | Latency (ms/cand) |
-|---|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Logistic Regression** | Linear / Probabilistic | 0.8330 | 78.30% | 88.78% | 0.8653 | 0.1309 | 0.0001 ms |
-| **KNN (Distance-Weighted)** | Instance-Based ($k=11$) | 0.8309 | 77.29% | 88.09% | 0.8657 | 0.1876 | 0.0290 ms |
-| **Decision Tree** | Tree-Based | 0.8416 | 78.55% | 89.11% | 0.8797 | 0.1163 | 0.0001 ms |
-| **Random Forest** | Bagging Ensemble (80 trees) | **0.8506** | **79.21%** | **89.70%** | **0.8842** | **0.1033** | 0.0005 ms |
-| **HistGradientBoosting** | Gradient Boosting | 0.8489 | 79.09% | 89.21% | 0.8827 | 0.1063 | 0.0004 ms |
-
-### Bayesian Optimization (Optuna TPE)
-
-`HistGradientBoostingClassifier` was tuned over 20 trials using Tree-structured Parzen Estimators (TPE) on 5-fold `GroupKFold` CV:
-- Best parameters: `learning_rate` = 0.02038, `max_leaf_nodes` = 56, `min_samples_leaf` = 44, `l2_regularization` = 0.1813, `max_iter` = 100.
-- Outperformed untuned baseline while improving probability calibration for HMM emissions.
-
-### HMM Viterbi Sequential Recovery
-
-| Metric | Pointwise Classifier | HMM Viterbi Decoding | Impact |
-|---|:---:|:---:|---|
-| **Route Continuity** | 89.27% | **99.71%** | +10.44% (eliminates disconnected hops) |
-| **Trips with 100% Continuity** | 0 / 10 | **4 / 10** | Resolves opposing-lane & overpass jitter |
+1. **Spatial Candidate Generation & Kinematic Scoring**: For each GPS point $z_t$, nearby candidate road segments within an empirical 50-meter bounding radius are retrieved using a 2D spatial `cKDTree`. A 14-dimensional geometric, kinematic, and topological feature vector is extracted and evaluated by a Bayesian-tuned Gradient Boosted Decision Ensemble (`HistGradientBoostingClassifier`).
+2. **Topological Sequence Decoding**: Pointwise candidate emission probabilities are combined with road network topological transition constraints in an HMM Viterbi decoder. Transitions penalize reverse-lane traversals ($-100.0$) and disconnected jumps ($-40.0$) while rewarding segment continuation ($+6.0$), 1-hop network succession ($+3.5$), and 2-hop traversal ($+2.5$), enforcing topological validity and route continuity.
 
 ---
 
-## Team Attribution
+## 2. Benchmark Performance
 
-| Teammate | Focus Area | Modules | Responsibilities |
+### Official Evaluator Test Benchmark (10 Trajectories, 19,674 Observations)
+
+Evaluated on the official `evaluator_test` partition containing 10 full-length trajectory trips. PathSnap achieves **> 92% Top-1 Accuracy across all 10 evaluation trips**, with an overall mean of **96.52% Top-1 Accuracy**, **100.0% Candidate Recall** (0.0% miss rate), and **99.49% Route Continuity**:
+
+| Trip ID | GPS Observations | Traversed Arcs | Candidate Recall | Candidate Miss Rate | Classification Acc | Weighted F1 | Top-1 Acc (HMM) | Route Continuity | Latency |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `00000015` | 6,854 | 132 | **100.0%** | 0.0% | 90.38% | 89.83% | **99.72%** | **100.00%** | 4.36 s |
+| `00000017` | 1,346 | 601 | **100.0%** | 0.0% | 95.46% | 95.20% | **92.79%** | **98.14%** | 3.47 s |
+| `00000023` | 458 | 57 | **100.0%** | 0.0% | 98.62% | 98.60% | **98.25%** | **100.00%** | 0.41 s |
+| `00000030` | 654 | 252 | **100.0%** | 0.0% | 93.88% | 93.60% | **93.88%** | **98.62%** | 0.94 s |
+| `00000049` | 2,642 | 394 | **100.0%** | 0.0% | 98.91% | 98.91% | **97.73%** | **100.00%** | 4.12 s |
+| `00000059` | 1,031 | 360 | **100.0%** | 0.0% | 95.90% | 95.67% | **94.37%** | **98.64%** | 1.73 s |
+| `00000067` | 916 | 79 | **100.0%** | 0.0% | 95.62% | 95.49% | **98.80%** | **100.00%** | 0.63 s |
+| `00000073` | 1,144 | 224 | **100.0%** | 0.0% | 97.32% | 97.23% | **97.03%** | **99.83%** | 1.15 s |
+| `00000087` | 1,399 | 428 | **100.0%** | 0.0% | 97.91% | 97.91% | **95.28%** | **99.86%** | 2.51 s |
+| `00000094` | 3,230 | 560 | **100.0%** | 0.0% | 94.37% | 93.96% | **97.31%** | **99.85%** | 6.73 s |
+| **OVERALL** | **19,674** | **3,087** | **100.0%** | **0.0%** | **94.31%** | **94.07%** | **96.52%** | **99.49%** | **2.61 s** |
+
+*All metrics are verified from `results/tables/evaluator_test_benchmark.csv` generated by `evaluate_evaluator_test.py`.*
+
+---
+
+## 3. Data Processing & Spatial Indexing
+
+### Coordinate Projection
+Raw longitude and latitude coordinates are projected into local Cartesian metric coordinates $(x, y)$ in meters using equirectangular projection centered at the regional centroid:
+$$x = R_{\text{earth}} \cdot (\lambda - \lambda_0) \cdot \cos\left(\frac{\phi + \phi_0}{2}\right), \quad y = R_{\text{earth}} \cdot (\phi - \phi_0)$$
+where $R_{\text{earth}} = 6{,}371{,}000\text{ m}$. This metric conversion enables closed-form vector geometry (point-to-segment projections, Euclidean distances, and cross products) without spherical trigonometry overhead.
+
+### Spatial Candidate Retrieval via `cKDTree`
+The road network consists of directed line segments (arcs) defined by start nodes $u = (u_x, u_y)$ and end nodes $v = (v_x, v_y)$. 
+- Each arc is indexed by its spatial midpoint $M_e = \frac{u + v}{2}$ in a SciPy 2D `cKDTree`.
+- For every GPS observation $z_t = (x_t, y_t)$, candidate arcs within a search radius $R = 50\text{ m}$ (up to $K = 10$ candidates) are queried in $O(\log |E|)$ time.
+- If fewer than 2 candidates fall within $R$, the query radius expands dynamically to guarantee candidate availability.
+- **Empirical Validation**: Achieves **100.0% Candidate Recall** across all 19,674 test points with zero candidate misses.
+
+### Monotonic Ground-Truth Sequence Alignment
+To generate reliable supervised training labels from reference route sequences, a dynamic programming sequence aligner matches each GPS observation $t \in [1, T]$ to an arc index $m \in [1, M]$ along the recorded route $R = (r_1, r_2, \dots, r_M)$. The transition cost enforces forward monotonicity ($m \to m$, $m \to m+1$, or $m \to m+2$), preventing non-physical backwards skips along the route.
+
+---
+
+## 4. 14-Dimensional Feature Representation
+
+For every GPS observation $z_t$ and retrieved candidate road segment $e_j = (u, v)$, PathSnap constructs a 14-dimensional feature vector:
+
+| # | Feature Name | Representation / Formula | Physical & Geometric Rationale |
+|:---:|---|---|---|
+| 1 | `perp_dist` | $d_{\perp} = \frac{\|(v - u) \times (u - z_t)\|}{\|v - u\|}$ | Orthogonal distance (meters) from the GPS coordinate to the line segment. |
+| 2 | `proj_ratio` | $u = \frac{(z_t - u) \cdot (v - u)}{\|v - u\|^2}$ | Normalized along-track projection parameter ($u \in [0, 1]$ on segment). |
+| 3 | `dist_to_start` | $\|z_t - u\|$ | Euclidean distance (meters) to segment entry node $u$. |
+| 4 | `dist_to_end` | $\|z_t - v\|$ | Euclidean distance (meters) to segment exit node $v$. |
+| 5 | `arc_length` | $\|v - u\|$ | Length of the road segment in meters. Disfavors micro-segments during fast travel. |
+| 6 | `heading_diff` | $\|\Delta \theta\| = \|\theta_{\text{vehicle}} - \theta_{\text{segment}}\|$ | Absolute angular deviation ($[0^\circ, 180^\circ]$) between vehicle heading and arc azimuth. |
+| 7 | `cos_heading_diff`| $\cos(\Delta \theta) \in [-1.0, 1.0]$ | Directional alignment factor. Negative values flag opposing traffic lanes. |
+| 8 | `speed_mps` | $v_t = \|\mathbf{x}_t - \mathbf{x}_{t-1}\| / \Delta t$ | Instantaneous vehicle speed in meters per second. |
+| 9 | `time_delta` | $\Delta t = t_t - t_{t-1}$ | Sampling interval (seconds). Normalizes kinematic change over signal gaps. |
+| 10 | `dist_rank` | $\text{rank}(d_{\perp}) \in \{1, 2, \dots, K\}$ | Relative proximity ranking among the $K$ candidates for observation $t$. |
+| 11 | `gaussian_prior` | $\exp\left(-\frac{d_{\perp}^2}{2\sigma_z^2}\right)$ | Uncalibrated spatial emission prior based on GPS measurement variance ($\sigma_z = 8.5\text{ m}$). |
+| 12 | `is_opposite_dir` | $\mathbb{I}[\|\Delta \theta\| > 90^\circ]$ | Binary indicator flagging candidate segments oriented against vehicle direction of travel. |
+| 13 | `perp_dist_sq` | $d_{\perp}^2$ | Quadratic distance penalty, heavily suppressing distant outlier road segments. |
+| 14 | `speed_cos_heading`| $v_t \cdot \cos(\Delta \theta)$ | Velocity-weighted directional coherence. High speed in opposing direction is penalized. |
+
+---
+
+## 5. Model Exploration & Comparative Benchmark
+
+We trained and evaluated five distinct machine learning model families using **5-Fold `GroupKFold` Cross-Validation**, grouping observations by `trip_id` so that no trajectory appeared in both training and validation splits.
+
+| Model | Algorithm Family | Key Configuration | 5-Fold CV Macro F1 | Classification Accuracy | Weighted F1 | Top-1 Accuracy | Route Continuity | Log Loss | Latency (ms/cand) |
+|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Logistic Regression** | Linear / Probabilistic | $C = 2.0$, $L_2$ penalty, `max_iter` = 1000 | 0.8386 | 95.28% | 95.26% | 77.72% | 89.97% | 0.1230 | **0.0001 ms** |
+| **KNN (Distance-Weighted)** | Instance-Based | $k = 15$, weights = distance, Euclidean | 0.8319 | 95.25% | 95.17% | 75.84% | 88.69% | 0.1809 | 0.0363 ms |
+| **Decision Tree** | Tree-Based | Gini, `max_depth` = 12, `min_leaf` = 15 | 0.8449 | 95.52% | 95.48% | 77.10% | 89.09% | 0.1252 | **0.0001 ms** |
+| **Random Forest** | Bagging Ensemble | 100 trees, `max_depth` = 15, `min_leaf` = 4 | **0.8515** | **95.71%** | **95.62%** | 77.65% | 90.14% | 0.1099 | 0.0009 ms |
+| **HistGradientBoosting** | Gradient Boosting | 150 trees, $\eta = 0.08$, `max_leaf` = 63 | 0.8510 | 95.66% | 95.61% | **77.75%** | **90.26%** | **0.1085** | 0.0014 ms |
+
+*Data recorded in `results/tables/model_comparison.csv`.*
+
+### Bayesian Hyperparameter Optimization (Optuna TPE)
+
+`HistGradientBoostingClassifier` was tuned using Tree-structured Parzen Estimators (TPE) across 20 trials on 5-fold `GroupKFold` CV:
+
+- **Search Distributions**:
+  - `learning_rate`: $\text{LogUniform}(0.02, 0.25)$
+  - `max_leaf_nodes`: $\text{IntUniform}(15, 63)$
+  - `min_samples_leaf`: $\text{IntUniform}(10, 80)$
+  - `l2_regularization`: $\text{LogUniform}(10^{-4}, 5.0)$
+  - `max_iter`: $\text{IntCategorical}(\{60, 80, 100, 120, 140\})$
+- **Champion Parameters**:
+  - `learning_rate` = 0.02038
+  - `max_leaf_nodes` = 56
+  - `min_samples_leaf` = 44
+  - `l2_regularization` = 0.1813
+  - `max_iter` = 100
+- **Outcome**: The Bayesian-tuned model produced superior probability calibration, directly improving candidate log-odds feeding into the downstream HMM Viterbi decoder.
+
+---
+
+## 6. Mathematical Formulation: Topological HMM & Viterbi Decoder
+
+Pointwise classification treats each observation independently. To resolve parallel road ambiguity and overpass intersections, PathSnap models the sequence as a Hidden Markov Model (HMM).
+
+```
+States (True Road Arcs):     ( s_{t-1} ) ─────── Transition A(s_{t-1}, s_t) ───────> (   s_t   )
+                                  │                                                        │
+                         Emission P(z|s)                                          Emission P(z|s)
+                                  ▼                                                        ▼
+Observations (GPS Points):   [ z_{t-1} ]                                              [   z_t   ]
+```
+
+### State Space
+For each GPS point $z_t$, the hidden state space is restricted to the candidate set $C_t = \{c_{t,1}, c_{t,2}, \dots, c_{t,K}\}$ ($K \le 10$) retrieved by spatial indexing.
+
+### Emission Log-Probability
+The emission probability combines the calibrated classifier probability $P_{\text{clf}}(y=1 \mid \mathbf{x}_{t,j})$ with a zero-mean Gaussian spatial error model:
+
+$$\ln P(z_t \mid s_t = c_{t,j}) = w_{\text{clf}} \cdot \ln P_{\text{clf}}(y=1 \mid \mathbf{x}_{t,j}) + (1 - w_{\text{clf}}) \left( -\frac{1}{2} \left(\frac{d_{\perp}(z_t, c_{t,j})}{\sigma_z}\right)^2 \right)$$
+
+where $w_{\text{clf}} = 0.85$ and $\sigma_z = 10.0\text{ m}$. An angular gating filter suppresses emissions when heading deviation exceeds $90^\circ$:
+$$P(z_t \mid c_{t,j}) \gets P(z_t \mid c_{t,j}) \cdot \mathbb{I}[\cos(\Delta \theta) > 0] + 10^{-4}$$
+
+### Topological Transition Matrix
+The transition log-score $\ln A(c_{t-1, i}, c_{t, j})$ is defined over the road network adjacency graph $G = (V, E)$:
+
+$$\ln A(c_{t-1, i}, c_{t, j}) = \begin{cases} 
++6.0 & \text{if } c_{t-1, i} = c_{t, j} \quad (\text{Vehicle remains on current segment}) \\
++3.5 & \text{if } c_{t, j} \in \text{succ}_1(c_{t-1, i}) \quad (\text{Direct 1-hop downstream road connectivity}) \\
++2.5 & \text{if } c_{t, j} \in \text{succ}_2(c_{t-1, i}) \quad (\text{2-hop successor; micro-segment traversed in } <1\text{s}) \\
+-100.0 & \text{if } c_{t, j} = \text{reverse}(c_{t-1, i}) \quad (\text{Anti-U-turn / opposite-lane violation}) \\
+-40.0 & \text{otherwise} \quad (\text{Topologically disconnected jump})
+\end{cases}$$
+
+### Viterbi Dynamic Programming Recurrence
+The optimal sequence of road segments $S^* = (s_1^*, s_2^*, \dots, s_T^*)$ is solved in $O(T \cdot K^2)$ time:
+
+1. **Initialization ($t = 0$)**:
+   $$V_0(j) = \ln P(z_0 \mid c_{0, j}) \quad \forall j \in \{1, \dots, |C_0|\}$$
+2. **Forward Recursion ($t = 1 \dots T-1$)**:
+   $$V_t(j) = \max_{i \in \{1, \dots, |C_{t-1}|\}} \left[ V_{t-1}(i) + \ln A(c_{t-1, i}, c_{t, j}) \right] + \ln P(z_t \mid c_{t, j})$$
+   $$B_t(j) = \arg\max_{i \in \{1, \dots, |C_{t-1}|\}} \left[ V_{t-1}(i) + \ln A(c_{t-1, i}, c_{t, j}) \right]$$
+3. **Termination & Backtracking**:
+   $$s_T^* = \arg\max_{j \in \{1, \dots, |C_T|\}} V_{T-1}(j), \quad s_{t-1}^* = B_t(s_t^*)$$
+
+### Sequential Continuity Gain
+
+| Reconstruction Metric | Pointwise Classifier Baseline | HMM Viterbi Decoder | Absolute Delta |
+|---|:---:|:---:|:---:|
+| **Route Continuity** | 89.33% | **99.71%** | **+10.38%** |
+| **Trips Reaching 100% Continuity** | 0 / 10 | **4 / 10** | **+4 trips** |
+| **Reverse-Lane Erratic Jumps** | Prevalent in parallel corridors | **Zero** (penalized at $-100.0$) | Completely eliminated |
+
+---
+
+## 7. Distributed API & System Integration
+
+PathSnap provides a high-throughput, low-latency FastAPI inference service (`api/app.py`):
+
+```
+Client / Evaluator UI ──── HTTP GET /trips ───────────> FastAPI Server
+Client / Evaluator UI ──── HTTP POST /predict/{id} ────> (Feature Extraction + ML Inference + HMM Viterbi)
+Client / Evaluator UI ──── HTTP POST /evaluate/{id} ───> (Server-Side Ground-Truth Audit Log)
+Client / Evaluator UI <─── JSON Response + Folium Map <─ (Top-1 Acc, Continuity, Latency, Traversed Arcs)
+```
+
+### Endpoints
+- `POST /predict/{trip_id}`: Executes full map-matching pipeline. Ingests raw GPS tracks, generates spatial candidates, executes model inference, runs Viterbi decoding, and generates an interactive Folium map.
+- `POST /evaluate/{trip_id}`: Evaluator audit route verification. Evaluates the predicted sequence against server-side ground truth without leaking labels to the client. Returns Top-1 accuracy, route continuity, and candidate miss rate.
+- `GET /trips`: Enumerates available trajectory datasets across partitions with observation counts, bounding boxes, and duration.
+- `GET /health`: Healthcheck endpoint reporting model readiness and loaded configurations.
+- `GET /map/{trip_id}`: Serves the interactive Folium GIS HTML visualization.
+
+---
+
+## 8. Interactive GIS Visualization
+
+PathSnap generates standalone, interactive HTML map visualizations powered by Folium and Leaflet.js:
+- **Raw GPS Trajectory**: Displayed as sequential red circle markers with interactive popup tooltips showing observation index, instantaneous speed, and timestamp.
+- **Candidate Road Segments**: Rendered as semi-transparent grey polylines illustrating the spatial candidate corridor searched by the algorithm.
+- **Viterbi Reconstructed Route**: Rendered as a bold cyan vector path representing the reconstructed sequence of traversed road segments.
+- **Ground-Truth Sequence**: When available, plotted as a dashed green line to enable immediate visual inspection of precision and intersection handling.
+
+---
+
+## 9. Team Attribution & Ownership
+
+| Teammate | Focus Area | Primary Modules | Technical Responsibilities |
 |---|---|---|---|
-| **Teammate 1** | Data Engineering | `data_processing/`, `features/` | Trajectory ingestion, Cartesian metric transformations, spatial indexing (`cKDTree`), candidate extraction, and ground-truth sequence alignment. |
-| **Teammate 2** | Machine Learning | `models/`, `evaluation/` | Model training across 5 families, 5-fold `GroupKFold` CV pipeline, evaluation metrics, and comparative benchmarking. |
-| **Teammate 3** | Sequential Modeling | `optimization/`, `hmm_viterbi/` | Bayesian hyperparameter optimization (Optuna TPE), HMM emission/transition calibration, and Viterbi dynamic programming decoder. |
-| **Teammate 4** | Distributed Systems & UI | `api/`, `ui/`, `visualization/` | FastAPI server endpoints (`/predict`, `/evaluate`), server-side ground truth isolation, Evaluator web interface, and interactive Folium GIS mapping. |
+| **Teammate 1** | Data Engineering Lead | `data_processing/`, `features/` | Trajectory ingestion, Cartesian metric transformations, spatial `cKDTree` midpoint indexing, candidate generation, and dynamic programming ground-truth alignment. |
+| **Teammate 2** | Machine Learning Architect | `models/`, `evaluation/` | Multi-family model training (5 algorithm classes), 5-fold `GroupKFold` CV pipeline, evaluation metrics implementation, and cross-model comparative benchmarking. |
+| **Teammate 3** | Sequence Modeling & Optimization | `optimization/`, `hmm_viterbi/` | Bayesian hyperparameter optimization (Optuna TPE), topological adjacency graph formulation, HMM emission/transition calibration, and Viterbi dynamic programming decoder. |
+| **Teammate 4** | Distributed Systems & Visual Analytics | `api/`, `ui/`, `visualization/` | Production FastAPI backend, server-side evaluation endpoints, CORS configuration, interactive Folium GIS map generation, and modern monochrome Evaluator UI. |
 
 ---
 
-## Project Structure
+## 10. Repository Architecture
 
 ```text
 ├── api/
-│   ├── app.py                      # FastAPI server application
-│   └── schemas.py                  # Pydantic response/request schemas
+│   ├── app.py                      # Production FastAPI backend application
+│   └── schemas.py                  # Pydantic request and response schemas
 ├── artifacts/
 │   ├── best_classifier.joblib      # Baseline champion classifier
 │   └── tuned_champion_model.joblib # Bayesian-tuned champion model
 ├── data/
-│   ├── train/                      # Training trajectories (.track, .nodes, .arcs, .route)
+│   ├── train/                      # 80 training trajectories (.track, .nodes, .arcs, .route)
 │   ├── student_test/               # Student test trajectories
-│   └── evaluator_test/             # 10 reserved evaluation trajectories
+│   └── evaluator_test/             # 10 official evaluation trajectories
 ├── data_processing/
 │   ├── dataset.py                  # Dataset loader & road network graph builder
 │   └── spatial_utils.py            # Coordinate projections and azimuth calculations
 ├── features/
-│   ├── feature_extractor.py        # 11D feature extractor & candidate generation
+│   ├── feature_extractor.py        # 14D feature extractor & candidate generation
 │   └── build_dataset.py            # Feature dataset builder
 ├── hmm_viterbi/
 │   └── hmm_decoder.py              # RoadNetworkGraph and HMM Viterbi decoder
@@ -101,7 +266,7 @@ Models evaluated across 5-fold `GroupKFold` cross-validation (isolated by `trip_
 │   ├── maps/                       # Interactive Folium HTML trajectory maps
 │   └── tables/                     # Benchmark CSV output tables
 ├── ui/
-│   └── index.html                  # Minimalist Evaluator web interface
+│   └── index.html                  # Minimalist monochrome Evaluator web interface
 ├── docs/
 │   ├── PathSnap_Technical_Report.pdf # Consolidated technical report
 │   └── VIVA_DEFENSE_GUIDE.md       # Viva defense Q&A preparation guide
